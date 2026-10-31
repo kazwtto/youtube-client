@@ -1,0 +1,44 @@
+use tauri::{Emitter, Manager, State};
+
+use crate::core::error::{AppError, AppResult};
+use crate::core::events;
+use crate::core::state::AppState;
+use crate::settings::AppSettings;
+use crate::theme::service::ThemeService;
+
+#[tauri::command]
+pub fn settings_get(state: State<'_, AppState>) -> AppResult<AppSettings> {
+    let settings = state
+        .settings
+        .read()
+        .map_err(|_| AppError::State("settings unavailable".into()))?
+        .snapshot();
+
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn settings_update(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    settings: AppSettings,
+) -> AppResult<AppSettings> {
+    let next = {
+        let mut store = state
+            .settings
+            .write()
+            .map_err(|_| AppError::State("settings unavailable".into()))?;
+        store.replace(settings)?
+    };
+
+    let system_dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
+    if let Ok(resolved) = ThemeService::resolve(&next.theme, system_dark) {
+        let _ = ThemeService::apply_to_window(&window, &resolved);
+        let _ = ThemeService::apply_to_youtube(&window, &resolved);
+        let _ = window.app_handle().emit(events::THEME_CHANGED, &resolved);
+    }
+
+    let _ = window.app_handle().emit(events::SETTINGS_CHANGED, &next);
+
+    Ok(next)
+}

@@ -123,7 +123,10 @@ function updateRpcPill(footer: HTMLElement, status: RpcStatus): void {
 
   dot.dataset.rpcState = status.state;
   label.textContent = t("shell.discord", { state: t(rpcStateKey(status.state)) });
-  footer.title = status.detail ?? "";
+  footer.title =
+    status.state === "notConfigured"
+      ? t("rpc.notConfiguredDetail")
+      : (status.detail ?? "");
 }
 
 function rpcStateKey(state: string): TranslationKey {

@@ -51,7 +51,13 @@ export async function renderHistory(host: HTMLElement): Promise<void> {
 
         const item = document.createElement("article");
         item.className = "history__item";
+
+        const thumbnail = entry.thumbnailPath
+          ? `<img class="history__thumb" src="${escapeHtml(entry.thumbnailPath)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+          : `<div class="history__thumb history__thumb--empty" aria-hidden="true"></div>`;
+
         item.innerHTML = `
+          ${thumbnail}
           <div class="history__meta">
             <h2>${escapeHtml(entry.title)}</h2>
             <p class="muted">${escapeHtml(entry.channel)} · ${watchCount}</p>

@@ -5,9 +5,8 @@ export const en = {
   "nav.extensions": "Extensions",
   "nav.rpc": "Discord RPC",
 
-  "sidebar.navigation": "Main navigation",
-
   "titlebar.youtubeNavigation": "YouTube navigation",
+  "titlebar.appActions": "Application",
   "titlebar.windowControls": "Window controls",
   "titlebar.back": "Back",
   "titlebar.forward": "Forward",
@@ -15,6 +14,7 @@ export const en = {
   "titlebar.home": "Home",
   "titlebar.minimize": "Minimize",
   "titlebar.maximize": "Maximize",
+  "titlebar.restore": "Restore",
   "titlebar.close": "Close",
 
   "rpc.status.disabled": "disabled",
@@ -23,7 +23,6 @@ export const en = {
   "rpc.status.idle": "idle",
   "rpc.status.notConfigured": "not configured",
   "rpc.status.error": "error",
-  "shell.discord": "Discord: {state}",
   "shell.navigateError": "Failed to navigate: {error}",
   "shell.ytToggleError": "Could not toggle the YouTube webview: {error}",
   "shell.rpcEventsError": "RPC events unavailable: {error}",
@@ -81,6 +80,11 @@ export const en = {
   "settings.historyEnabled": "Save history",
   "settings.historyMinWatch": "Minimum time to record (seconds)",
   "settings.historyThumbnails": "Keep local thumbnails",
+  "settings.application": "Application",
+  "settings.hardwareAcceleration": "Hardware acceleration",
+  "settings.hardwareAccelerationHint":
+    "Turn it off if YouTube shows visual glitches. Changing this requires restarting the app.",
+  "settings.version": "Version",
   "settings.save": "Save changes",
   "settings.saving": "Saving...",
   "settings.saved": "Changes saved.",
@@ -123,6 +127,7 @@ export const en = {
   "extensions.remove": "Remove",
   "extensions.confirmRemove": 'Remove extension "{name}"?',
   "extensions.removed": 'Extension "{name}" removed.',
+  "extensions.applying": "Applying changes and reloading YouTube…",
 
   "rpc.eyebrow": "Integration",
   "rpc.title": "Discord Rich Presence",

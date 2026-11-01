@@ -4,7 +4,7 @@ use crate::core::error::{AppError, AppResult};
 use crate::core::events;
 use crate::core::state::AppState;
 use crate::player::PlayerSnapshot;
-use crate::rpc::model::{build_activity, RpcStatus};
+use crate::rpc::model::{app_id_for, build_activity, RpcStatus};
 
 #[tauri::command]
 pub fn rpc_status(state: State<'_, AppState>) -> AppResult<RpcStatus> {
@@ -34,7 +34,10 @@ pub fn rpc_update(
         .map_err(|_| AppError::State("RPC service unavailable".into()))?;
 
     let status = match build_activity(&snapshot, &settings.rpc, &settings.general.language) {
-        Some(activity) => rpc.update(&activity, &settings.rpc)?,
+        Some(activity) => {
+            let app_id = app_id_for(&settings.rpc, snapshot.is_music());
+            rpc.update(&activity, &settings.rpc, app_id)?
+        }
         None => rpc.clear(&settings.rpc)?,
     };
 

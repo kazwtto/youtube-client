@@ -26,7 +26,6 @@
   --font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-size-base: 14px;
 
-  /* Must match SIDEBAR_WIDTH/TITLEBAR_HEIGHT in src-tauri/src/window/layout.rs. */
-  --sidebar-width: 232px;
+  /* Must match TITLEBAR_HEIGHT in src-tauri/src/window/layout.rs. */
   --titlebar-height: 40px;
 }

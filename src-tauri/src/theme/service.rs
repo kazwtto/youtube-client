@@ -73,26 +73,18 @@ impl ThemeService {
         Ok(())
     }
 
-    /// Injects the theme tokens into the YouTube webview.
+    /// Pushes the resolved theme into the YouTube webview.
+    ///
+    /// The webview defines `window.__ytdesktopApplyTheme` in an initialization
+    /// script, so the same mapping runs on load and on every update.
     pub fn apply_to_youtube(window: &tauri::Window, resolved: &ResolvedTheme) -> AppResult<()> {
         let Some(webview) = window.get_webview("yt") else {
             return Ok(());
         };
 
-        let css = youtube_css(resolved);
-        let css_literal = serde_json::to_string(&css)?;
-        let script = format!(
-            r#"(() => {{
-                const id = "ytdesktop-theme";
-                let style = document.getElementById(id);
-                if (!style) {{
-                    style = document.createElement("style");
-                    style.id = id;
-                    document.documentElement.appendChild(style);
-                }}
-                style.textContent = {css_literal};
-            }})();"#
-        );
+        let payload = serde_json::to_string(resolved)?;
+        let script =
+            format!("window.__ytdesktopApplyTheme && window.__ytdesktopApplyTheme({payload});");
 
         webview.eval(&script).map_err(AppError::from)?;
         Ok(())
@@ -110,23 +102,4 @@ fn validate_hex(value: &str) -> AppResult<()> {
     } else {
         Err(AppError::Validation(format!("invalid color: {value}")))
     }
-}
-
-fn youtube_css(resolved: &ResolvedTheme) -> String {
-    let scheme = if resolved.effective_mode == ThemeMode::Dark {
-        "dark"
-    } else {
-        "light"
-    };
-
-    let accent_fg = resolved
-        .tokens
-        .get("--color-accent-fg")
-        .map(String::as_str)
-        .unwrap_or("#ffffff");
-
-    format!(
-        ":root {{ color-scheme: {scheme}; --ytdesktop-accent: {accent}; }}\n::selection {{ background: {accent}; color: {accent_fg}; }}\n",
-        accent = resolved.accent,
-    )
 }

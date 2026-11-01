@@ -7,9 +7,8 @@ export const ptBR: Record<TranslationKey, string> = {
   "nav.extensions": "Extensões",
   "nav.rpc": "Discord RPC",
 
-  "sidebar.navigation": "Navegação principal",
-
   "titlebar.youtubeNavigation": "Navegação do YouTube",
+  "titlebar.appActions": "Aplicativo",
   "titlebar.windowControls": "Controles da janela",
   "titlebar.back": "Voltar",
   "titlebar.forward": "Avançar",
@@ -17,6 +16,7 @@ export const ptBR: Record<TranslationKey, string> = {
   "titlebar.home": "Início",
   "titlebar.minimize": "Minimizar",
   "titlebar.maximize": "Maximizar",
+  "titlebar.restore": "Restaurar",
   "titlebar.close": "Fechar",
 
   "rpc.status.disabled": "desativado",
@@ -25,7 +25,6 @@ export const ptBR: Record<TranslationKey, string> = {
   "rpc.status.idle": "ocioso",
   "rpc.status.notConfigured": "não configurado",
   "rpc.status.error": "erro",
-  "shell.discord": "Discord: {state}",
   "shell.navigateError": "Falha ao navegar: {error}",
   "shell.ytToggleError": "Não foi possível alternar o webview do YouTube: {error}",
   "shell.rpcEventsError": "Eventos de RPC indisponíveis: {error}",
@@ -83,6 +82,11 @@ export const ptBR: Record<TranslationKey, string> = {
   "settings.historyEnabled": "Salvar histórico",
   "settings.historyMinWatch": "Tempo mínimo para registrar (segundos)",
   "settings.historyThumbnails": "Manter miniaturas locais",
+  "settings.application": "Aplicativo",
+  "settings.hardwareAcceleration": "Aceleração de hardware",
+  "settings.hardwareAccelerationHint":
+    "Desative se o YouTube apresentar falhas visuais. Alterar isso exige reiniciar o aplicativo.",
+  "settings.version": "Versão",
   "settings.save": "Salvar alterações",
   "settings.saving": "Salvando...",
   "settings.saved": "Alterações salvas.",
@@ -125,6 +129,7 @@ export const ptBR: Record<TranslationKey, string> = {
   "extensions.remove": "Remover",
   "extensions.confirmRemove": 'Remover a extensão "{name}"?',
   "extensions.removed": 'Extensão "{name}" removida.',
+  "extensions.applying": "Aplicando alterações e recarregando o YouTube…",
 
   "rpc.eyebrow": "Integração",
   "rpc.title": "Discord Rich Presence",

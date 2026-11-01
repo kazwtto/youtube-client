@@ -24,7 +24,11 @@ function themeName(theme: ThemeSummary): string {
 }
 
 export async function renderSettings(host: HTMLElement): Promise<void> {
-  const [settings, themes] = await Promise.all([api.settingsGet(), api.themeList()]);
+  const [settings, themes, version] = await Promise.all([
+    api.settingsGet(),
+    api.themeList(),
+    api.appVersion(),
+  ]);
   let current = settings;
 
   const themeOptions = themes
@@ -168,6 +172,21 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
           </label>
         </section>
 
+        <section class="card">
+          <div class="card__header">
+            <h2>${t("settings.application")}</h2>
+          </div>
+
+          <label class="field field--inline">
+            <input type="checkbox" name="hardwareAcceleration" />
+            <span>${t("settings.hardwareAcceleration")}</span>
+          </label>
+          <p class="muted">${t("settings.hardwareAccelerationHint")}</p>
+          <p class="muted">
+            ${t("settings.version")}: YT Desktop ${escapeHtml(version)}
+          </p>
+        </section>
+
         <div class="settings__actions">
           <button type="submit" class="button button--primary">${t("settings.save")}</button>
           <span class="status" id="settings-status" role="status"></span>
@@ -203,6 +222,9 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
   const historyThumbnails = form.querySelector<HTMLInputElement>(
     '[name="historyThumbnails"]',
   )!;
+  const hardwareAcceleration = form.querySelector<HTMLInputElement>(
+    '[name="hardwareAcceleration"]',
+  )!;
 
   const status = host.querySelector<HTMLElement>("#settings-status")!;
 
@@ -229,6 +251,7 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
     historyEnabled.checked = value.history.enabled;
     historyMinWatch.value = String(value.history.minimumWatchSecs);
     historyThumbnails.checked = value.history.keepThumbnails;
+    hardwareAcceleration.checked = value.general.hardwareAcceleration;
   };
 
   syncForm(current);
@@ -274,6 +297,7 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
       general: {
         ...current.general,
         language: normalizeLanguage(languageSelect.value),
+        hardwareAcceleration: hardwareAcceleration.checked,
       },
     };
 

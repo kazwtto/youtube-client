@@ -1,15 +1,15 @@
 # WebView2 test extension
 
 Minimal Manifest V3 extension used to validate that YT Desktop loads unpacked
-Chromium extensions through `browser_extensions_enabled(true)` and
-`extensions_path`.
+Chromium extensions through `browser_extensions_enabled(true)` and the WebView2
+profile.
 
 ## Install
 
 1. Open YT Desktop.
 2. Go to **Extensions**.
 3. Install this folder by absolute path: `spikes/test-extension`.
-4. Reopen the app or reload the YouTube webview.
+4. The YouTube webview reloads automatically once the profile changes.
 
 ## Expected result
 

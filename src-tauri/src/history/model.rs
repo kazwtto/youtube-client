@@ -44,5 +44,7 @@ pub struct WatchEventInput {
     #[serde(default)]
     pub duration_secs: Option<f64>,
     #[serde(default)]
+    pub thumbnail_url: Option<String>,
+    #[serde(default)]
     pub watched_at: Option<i64>,
 }

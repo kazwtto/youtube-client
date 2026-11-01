@@ -98,7 +98,7 @@ export interface PlayerSnapshot {
   videoId: string | null;
   title: string | null;
   channel: string | null;
-  channelId: string | null;
+  channelUrl: string | null;
   artworkUrl: string | null;
   url: string | null;
   isPlaying: boolean;

@@ -18,7 +18,7 @@
     videoId: null,
     title: null,
     channel: null,
-    channelId: null,
+    channelUrl: null,
     artworkUrl: null,
     url: null,
     isPlaying: false,
@@ -81,6 +81,25 @@
     return text || null;
   }
 
+  /// Resolves the absolute channel URL from the channel link.
+  function readChannelUrl() {
+    const element = document.querySelector(SELECTORS.channel);
+    if (!element) {
+      return null;
+    }
+
+    const href = element.getAttribute("href") || element.href;
+    if (!href) {
+      return null;
+    }
+
+    try {
+      return new URL(href, window.location.origin).href;
+    } catch (_error) {
+      return null;
+    }
+  }
+
   function currentSnapshot() {
     const player = document.getElementById("movie_player");
     if (!player) {
@@ -106,9 +125,9 @@
       videoId,
       title: readText(SELECTORS.title) || document.title.replace(/\s*-\s*YouTube$/, ""),
       channel: readText(SELECTORS.channel),
-      channelId: null,
+      channelUrl: readChannelUrl(),
       artworkUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-      url: `https://www.youtube.com/watch?v=${videoId}`,
+      url: `${window.location.origin}/watch?v=${videoId}`,
       isPlaying: !video.paused && !video.ended,
       isLivestream,
       positionSecs: position,

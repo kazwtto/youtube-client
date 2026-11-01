@@ -179,14 +179,14 @@ pub fn build_activity(
         }
     }
     if settings.show_channel_button {
-        if let Some(channel_id) = snapshot
-            .channel_id
+        if let Some(channel_url) = snapshot
+            .channel_url
             .clone()
             .filter(|value| !value.is_empty())
         {
             buttons.push(ActivityButton {
                 label: truncate(labels.channel, 32),
-                url: format!("https://www.youtube.com/channel/{channel_id}"),
+                url: channel_url,
             });
         }
     }
@@ -203,6 +203,16 @@ pub fn build_activity(
         small_image_text,
         buttons,
     })
+}
+
+/// Selects the Discord Application ID for the current source, preferring the
+/// dedicated YouTube Music application when one is configured.
+pub fn app_id_for(settings: &RpcSettings, is_music: bool) -> &str {
+    if is_music && !settings.music_app_id.trim().is_empty() {
+        &settings.music_app_id
+    } else {
+        &settings.app_id
+    }
 }
 
 pub fn now_millis() -> i64 {

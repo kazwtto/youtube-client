@@ -147,7 +147,6 @@
 .history__item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
   padding: 14px 18px;
   border: 1px solid var(--color-border);
@@ -155,7 +154,25 @@
   background: var(--color-bg-elevated);
 }
 
+.history__item > .button {
+  margin-left: auto;
+}
+
+.history__thumb {
+  flex: none;
+  width: 120px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--color-hover);
+}
+
+.history__thumb--empty {
+  display: block;
+}
+
 .history__meta {
+  flex: 1;
   min-width: 0;
 }
 

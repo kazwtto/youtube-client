@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicBool;
 use std::sync::{Mutex, RwLock};
 
 use tauri::AppHandle;
@@ -6,6 +7,7 @@ use crate::core::error::AppResult;
 use crate::core::paths::AppPaths;
 use crate::extensions::ExtensionService;
 use crate::history::HistoryRepository;
+use crate::player::WatchTracker;
 use crate::rpc::RpcService;
 use crate::settings::SettingsStore;
 
@@ -16,6 +18,10 @@ pub struct AppState {
     pub extensions: ExtensionService,
     pub rpc: Mutex<RpcService>,
     pub history: HistoryRepository,
+    pub watch: Mutex<WatchTracker>,
+    /// Whether the YouTube webview is currently visible. Tracked so a webview
+    /// rebuilt after an extension change keeps the right visibility.
+    pub youtube_visible: AtomicBool,
 }
 
 impl AppState {
@@ -33,6 +39,8 @@ impl AppState {
             extensions,
             rpc: Mutex::new(rpc),
             history,
+            watch: Mutex::new(WatchTracker::default()),
+            youtube_visible: AtomicBool::new(true),
         })
     }
 }

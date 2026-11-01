@@ -1,6 +1,9 @@
-use tauri::{Manager, Window};
+use std::sync::atomic::Ordering;
+
+use tauri::{Manager, State, Window};
 
 use crate::core::error::{AppError, AppResult};
+use crate::core::state::AppState;
 use crate::window::layout::YOUTUBE_WEBVIEW_LABEL;
 
 #[tauri::command]
@@ -10,10 +13,19 @@ pub fn app_version() -> String {
 
 /// Shows or hides a webview (used to switch between UI and YouTube).
 #[tauri::command]
-pub fn set_webview_visible(window: Window, label: String, visible: bool) -> AppResult<()> {
+pub fn set_webview_visible(
+    window: Window,
+    state: State<'_, AppState>,
+    label: String,
+    visible: bool,
+) -> AppResult<()> {
     let webview = window
         .get_webview(&label)
         .ok_or_else(|| AppError::NotFound(format!("webview: {label}")))?;
+
+    if label == YOUTUBE_WEBVIEW_LABEL {
+        state.youtube_visible.store(visible, Ordering::SeqCst);
+    }
 
     if visible {
         webview.show()?;

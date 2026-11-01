@@ -46,12 +46,13 @@ impl RpcService {
         &mut self,
         activity: &DiscordActivity,
         settings: &RpcSettings,
+        app_id: &str,
     ) -> AppResult<RpcStatus> {
         if !settings.enabled {
             return self.clear(settings);
         }
 
-        let app_id = settings.app_id.trim();
+        let app_id = app_id.trim();
         if app_id.is_empty() {
             self.status = RpcStatus::not_configured();
             return Ok(self.status.clone());

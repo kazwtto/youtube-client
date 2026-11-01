@@ -69,11 +69,26 @@ the services; business rules live in the domain modules.
 | Folder | Responsibility |
 | --- | --- |
 | `app` | Bootstrap, shell, and router. |
-| `components` | Title bar and sidebar navigation. |
+| `components` | Title bar and the inline SVG icon set. |
 | `pages` | Home, settings, history, extensions, and RPC. |
 | `theme` | Token application and `theme://changed` listener. |
 | `lib` | Types and typed IPC wrappers. |
 | `styles` | Tokens, base, components, and pages. |
+
+### Window chrome
+
+The title bar carries everything: the launcher brand, the YouTube navigation
+(back, forward, reload, and home), the app actions (history, extensions,
+Discord RPC, and settings), and the window controls. There is no sidebar; every
+route stays reachable from the title bar.
+
+### Settings
+
+The settings page covers appearance (theme, mode, backdrop, accent, radius,
+motion, and language), playback history, Discord Rich Presence, extensions, and
+an application section with the version and a hardware acceleration toggle.
+Turning hardware acceleration off asks WebView2 to start without the GPU; it
+takes effect after a restart.
 
 ### Local data
 
@@ -83,6 +98,7 @@ Under `%APPDATA%\com.ytdesktop.client\`:
 - `history.db` — SQLite history.
 - `extensions/` — installed extensions.
 - `thumbnails/` — thumbnails kept locally.
+- `webview/` — one WebView2 user data folder per webview (`ui` and `yt`).
 
 ## Themes
 
@@ -92,7 +108,9 @@ The theme system has three layers:
 2. **Resolution** (`theme/service.rs`): combines theme, mode (`system`/`light`/`dark`),
    accent color, radius, and motion into a token set.
 3. **Application**: CSS tokens in the UI, `Mica`/`Acrylic`/`Solid` on the native
-   window, and synchronized CSS in the YouTube webview.
+   window, and the same palette mapped onto YouTube's own design tokens in the
+   `yt` webview through `injected/theme.js`. Theme changes apply to the launcher
+   and to YouTube, and following the system re-applies on theme changes.
 
 Built-in themes: `fluent` and `high-contrast`. The UI uses the variables
 `--color-bg`, `--color-fg`, `--color-accent`, `--radius-*`, and `--motion-*`.
@@ -127,8 +145,9 @@ Available permissions: `player.read`, `player.control`, `history.read`,
 `theme.read`, and `theme.write`.
 
 Flow: install from folder → validate manifest → copy to the data directory
-→ enable/disable in `settings.json` → load on the next webview launch.
-Invalid extensions are ignored during listing.
+→ enable/disable in `settings.json` → reconcile the WebView2 profile at runtime
+(`webview2-com`), rebuilding the YouTube webview when the set changes. Invalid
+extensions are ignored during listing.
 
 ## Discord Rich Presence
 
@@ -138,13 +157,17 @@ title, channel, time, thumbnail, and up to two buttons, applying a 15-second
 rate limit between updates. Without a video — or while paused with
 `idleWhenPaused` enabled — the presence is cleared.
 
-The Application ID is configurable in **Settings → Discord Rich Presence**.
+The Application ID is configurable in **Settings → Discord Rich Presence**. A
+separate Application ID can be set for YouTube Music; it is used automatically
+when the player reports a `music.youtube.com` origin.
 
 ## History
 
 The database uses `sqlx` migrations, with `videos`, `watch_events`, indexes, and
 an FTS5 table synchronized by triggers. Queries aggregate by video and sort by
-last access.
+last access. The backend tracks playback time (ignoring seeks) and records a
+watch event once the configured minimum is reached; the artwork URL is stored
+when **Keep local thumbnails** is enabled.
 
 ## IPC commands
 

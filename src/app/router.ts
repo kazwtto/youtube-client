@@ -2,8 +2,6 @@ export type RouteId = "home" | "settings" | "history" | "extensions" | "rpc";
 
 export interface RouteDefinition {
   id: RouteId;
-  label: string;
-  icon: string;
   render: (host: HTMLElement) => void | Promise<void>;
 }
 

@@ -8,10 +8,11 @@ use super::permissions::Permission;
 
 /// Subset of the Chromium manifest sufficient to validate the extension.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ChromiumManifest {
     pub name: String,
     pub version: String,
+    /// Chromium manifests use the snake_case key `manifest_version`.
+    #[serde(rename = "manifest_version")]
     pub manifest_version: u32,
     #[serde(default)]
     pub description: Option<String>,

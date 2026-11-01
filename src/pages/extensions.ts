@@ -136,8 +136,10 @@ function extensionCard(
     ?.addEventListener("click", () => {
       void (async () => {
         try {
+          status.textContent = t("extensions.applying");
           await api.extensionsSetEnabled(extension.id, !extension.enabled);
           await refresh();
+          status.textContent = "";
         } catch (error) {
           status.textContent = t("common.error", { error: String(error) });
         }

@@ -74,11 +74,12 @@ impl HistoryRepository {
         sqlx::query(
             r#"
             INSERT INTO videos (id, title, channel, duration_secs, thumbnail_path, updated_at)
-            VALUES (?1, ?2, ?3, ?4, NULL, ?5)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 channel = excluded.channel,
                 duration_secs = excluded.duration_secs,
+                thumbnail_path = COALESCE(excluded.thumbnail_path, videos.thumbnail_path),
                 updated_at = excluded.updated_at
             "#,
         )
@@ -86,6 +87,7 @@ impl HistoryRepository {
         .bind(&event.title)
         .bind(&event.channel)
         .bind(event.duration_secs)
+        .bind(&event.thumbnail_url)
         .bind(watched_at)
         .execute(&self.pool)
         .await?;

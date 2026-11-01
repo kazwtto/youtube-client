@@ -90,12 +90,7 @@ export function createShell(root: HTMLElement): void {
 
   router.onNavigate(async (route) => {
     renderNav(route.id);
-
-    try {
-      await api.setWebviewVisible("yt", route.id === "home");
-    } catch (error) {
-      console.warn(t("shell.ytToggleError", { error: String(error) }));
-    }
+    await setYoutubeVisible(route.id === "home");
   });
 
   void api
@@ -111,6 +106,26 @@ export function createShell(root: HTMLElement): void {
 
   renderNav(router.currentId);
   navigate("home");
+}
+
+/// Toggles the YouTube webview, retrying briefly because the UI webview can
+/// invoke commands before the YouTube webview is registered during startup.
+async function setYoutubeVisible(visible: boolean): Promise<void> {
+  const maxAttempts = 6;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      await api.setWebviewVisible("yt", visible);
+      return;
+    } catch (error) {
+      if (attempt === maxAttempts - 1) {
+        console.warn(t("shell.ytToggleError", { error: String(error) }));
+        return;
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    }
+  }
 }
 
 function updateRpcPill(footer: HTMLElement, status: RpcStatus): void {

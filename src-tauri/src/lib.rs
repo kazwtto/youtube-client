@@ -31,10 +31,11 @@ pub fn run() {
                 .snapshot()
                 .theme;
             let extensions_dir = state.paths.extensions_dir.clone();
+            let webview_data_dir = state.paths.webview_data_dir.clone();
 
             app.manage(state);
 
-            let window = window::layout::setup(app, &extensions_dir)?;
+            let window = window::layout::setup(app, &extensions_dir, &webview_data_dir)?;
 
             // The theme is applied tolerantly: if the material is not
             // supported (e.g. Mica on older Windows versions), the app still

@@ -22,7 +22,11 @@ const INITIAL_HEIGHT: f64 = 800.0;
 /// Creates the main window and the two webviews:
 /// - `ui`: app interface, covering the entire window (title bar and sidebar).
 /// - `yt`: YouTube, in the content area, with WebView2 extensions enabled.
-pub fn setup(app: &mut App, extensions_dir: &Path) -> AppResult<Window> {
+///
+/// Each webview owns a separate WebView2 user data folder. WebView2 refuses to
+/// share a folder between environments created with different options, and the
+/// YouTube webview enables browser extensions while the UI webview does not.
+pub fn setup(app: &mut App, extensions_dir: &Path, webview_data_dir: &Path) -> AppResult<Window> {
     let window = tauri::window::WindowBuilder::new(app, MAIN_WINDOW_LABEL)
         .title("YT Desktop")
         .inner_size(INITIAL_WIDTH, INITIAL_HEIGHT)
@@ -31,7 +35,11 @@ pub fn setup(app: &mut App, extensions_dir: &Path) -> AppResult<Window> {
         .transparent(true)
         .build()?;
 
+    let ui_data_dir = webview_data_dir.join("ui");
+    let youtube_data_dir = webview_data_dir.join("yt");
+
     let ui = WebviewBuilder::new(UI_WEBVIEW_LABEL, WebviewUrl::App("index.html".into()))
+        .data_directory(ui_data_dir)
         .background_color(Color(0, 0, 0, 0));
     window.add_child(
         ui,
@@ -39,26 +47,44 @@ pub fn setup(app: &mut App, extensions_dir: &Path) -> AppResult<Window> {
         LogicalSize::new(INITIAL_WIDTH, INITIAL_HEIGHT),
     )?;
 
-    let youtube_url = "https://www.youtube.com"
+    let youtube_url: tauri::Url = "https://www.youtube.com"
         .parse()
         .expect("invalid YouTube URL");
 
-    let mut youtube = WebviewBuilder::new(YOUTUBE_WEBVIEW_LABEL, WebviewUrl::External(youtube_url))
-        .browser_extensions_enabled(true)
+    let position = LogicalPosition::new(SIDEBAR_WIDTH, TITLEBAR_HEIGHT);
+    let size = LogicalSize::new(
+        (INITIAL_WIDTH - SIDEBAR_WIDTH).max(0.0),
+        (INITIAL_HEIGHT - TITLEBAR_HEIGHT).max(0.0),
+    );
+
+    let build_youtube = |with_extensions: bool| {
+        let mut builder = WebviewBuilder::new(
+            YOUTUBE_WEBVIEW_LABEL,
+            WebviewUrl::External(youtube_url.clone()),
+        )
+        .data_directory(youtube_data_dir.clone())
         .initialization_script_for_all_frames(include_str!("../../../injected/observer.js"));
 
-    if std::fs::create_dir_all(extensions_dir).is_ok() {
-        youtube = youtube.extensions_path(extensions_dir);
-    }
+        if with_extensions {
+            builder = builder.browser_extensions_enabled(true);
 
-    window.add_child(
-        youtube,
-        LogicalPosition::new(SIDEBAR_WIDTH, TITLEBAR_HEIGHT),
-        LogicalSize::new(
-            (INITIAL_WIDTH - SIDEBAR_WIDTH).max(0.0),
-            (INITIAL_HEIGHT - TITLEBAR_HEIGHT).max(0.0),
-        ),
-    )?;
+            if std::fs::create_dir_all(extensions_dir).is_ok() {
+                builder = builder.extensions_path(extensions_dir);
+            }
+        }
+
+        builder
+    };
+
+    if window
+        .add_child(build_youtube(true), position, size)
+        .is_err()
+    {
+        // Some WebView2 runtimes cannot load browser extensions. Fall back to a
+        // regular webview so the app still starts; extensions can be revisited
+        // after a runtime update.
+        window.add_child(build_youtube(false), position, size)?;
+    }
 
     layout_webviews(&window)?;
     observe_window(&window);

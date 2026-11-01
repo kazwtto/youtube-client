@@ -10,7 +10,8 @@
 
   const SELECTORS = {
     player: "#movie_player",
-    title: "div.ytp-chrome-top a.ytp-title-link",
+    videoTitle: "h1.ytd-watch-metadata yt-formatted-string",
+    playerTitle: "div.ytp-chrome-top a.ytp-title-link",
     channel: "#upload-info #channel-name a",
   };
 
@@ -123,7 +124,10 @@
 
     return {
       videoId,
-      title: readText(SELECTORS.title) || document.title.replace(/\s*-\s*YouTube$/, ""),
+      title:
+        readText(SELECTORS.videoTitle) ||
+        document.title.replace(/\s*-\s*YouTube$/, "").trim() ||
+        readText(SELECTORS.playerTitle),
       channel: readText(SELECTORS.channel),
       channelUrl: readChannelUrl(),
       artworkUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,

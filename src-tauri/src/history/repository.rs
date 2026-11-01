@@ -128,3 +128,147 @@ impl HistoryRepository {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::history::model::{HistoryQuery, WatchEventInput};
+
+    fn temp_db(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("ytdesktop-history-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir.join("history.db")
+    }
+
+    fn event(
+        video_id: &str,
+        title: &str,
+        channel: &str,
+        thumbnail: Option<&str>,
+        watched_at: i64,
+    ) -> WatchEventInput {
+        WatchEventInput {
+            video_id: video_id.into(),
+            title: title.into(),
+            channel: channel.into(),
+            duration_secs: Some(120.0),
+            thumbnail_url: thumbnail.map(str::to_string),
+            watched_at: Some(watched_at),
+        }
+    }
+
+    #[tokio::test]
+    async fn records_and_lists_watch_events() {
+        let path = temp_db("roundtrip");
+        let repository = HistoryRepository::connect(&path).await.expect("connect");
+
+        repository
+            .record(event(
+                "abc",
+                "First",
+                "Channel",
+                Some("https://img/1.jpg"),
+                1_000,
+            ))
+            .await
+            .expect("record");
+        repository
+            .record(event("abc", "First updated", "Channel", None, 2_000))
+            .await
+            .expect("record");
+
+        let rows = repository
+            .list(HistoryQuery::default())
+            .await
+            .expect("list");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "abc");
+        assert_eq!(rows[0].title, "First updated");
+        assert_eq!(rows[0].channel, "Channel");
+        assert_eq!(rows[0].duration_secs, Some(120.0));
+        assert_eq!(rows[0].thumbnail_path.as_deref(), Some("https://img/1.jpg"));
+        assert_eq!(rows[0].last_watched_at, 2_000);
+        assert_eq!(rows[0].watch_count, 2);
+
+        drop(repository);
+        let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
+    }
+
+    #[tokio::test]
+    async fn searches_titles_and_channels() {
+        let path = temp_db("search");
+        let repository = HistoryRepository::connect(&path).await.expect("connect");
+
+        repository
+            .record(event("a", "Rust tutorial", "Code", None, 1_000))
+            .await
+            .expect("record");
+        repository
+            .record(event("b", "Gaming", "Rust players", None, 2_000))
+            .await
+            .expect("record");
+        repository
+            .record(event("c", "Cooking", "Chef", None, 3_000))
+            .await
+            .expect("record");
+
+        let rows = repository
+            .list(HistoryQuery {
+                search: "rust".into(),
+                ..Default::default()
+            })
+            .await
+            .expect("list");
+        let ids: Vec<&str> = rows.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["b", "a"]);
+
+        let rows = repository
+            .list(HistoryQuery {
+                search: "chef".into(),
+                ..Default::default()
+            })
+            .await
+            .expect("list");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "c");
+
+        drop(repository);
+        let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
+    }
+
+    #[tokio::test]
+    async fn deletes_and_clears_history() {
+        let path = temp_db("delete");
+        let repository = HistoryRepository::connect(&path).await.expect("connect");
+
+        repository
+            .record(event("a", "One", "Channel", None, 1_000))
+            .await
+            .expect("record");
+        repository
+            .record(event("b", "Two", "Channel", None, 2_000))
+            .await
+            .expect("record");
+
+        repository.delete("a").await.expect("delete");
+        let rows = repository
+            .list(HistoryQuery::default())
+            .await
+            .expect("list");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "b");
+
+        repository.clear().await.expect("clear");
+        assert!(repository
+            .list(HistoryQuery::default())
+            .await
+            .expect("list")
+            .is_empty());
+
+        drop(repository);
+        let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
+    }
+}

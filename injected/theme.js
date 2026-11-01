@@ -40,37 +40,43 @@
     const accent = (theme && theme.accent) || tokenValue(theme, "--color-accent", "#0a84ff");
     const accentFg = tokenValue(theme, "--color-accent-fg", "#ffffff");
 
+    // Every declaration is `!important` because YouTube defines the same
+    // custom properties on `:root` and `html[dark]`, which would otherwise win
+    // the cascade (light themes) or tie with our runtime-appended sheet.
+    const important = (name, value) => `  ${name}: ${value} !important;`;
+
     return [
-      "html, html[dark] {",
-      `  color-scheme: ${dark ? "dark" : "light"};`,
-      `  --yt-spec-base-background: ${bg};`,
-      `  --yt-spec-raised-background: ${bg};`,
-      `  --yt-spec-menu-background: ${elevated};`,
-      `  --yt-spec-general-background-a: ${bg};`,
-      `  --yt-spec-general-background-b: ${bg};`,
-      `  --yt-spec-general-background-c: ${bg};`,
-      `  --yt-spec-brand-background-solid: ${bg};`,
-      `  --yt-spec-brand-background-primary: ${bg};`,
-      `  --yt-spec-brand-background-secondary: ${bg};`,
-      `  --yt-spec-text-primary: ${fg};`,
-      `  --yt-spec-text-primary-inverse: ${bg};`,
-      `  --yt-spec-text-secondary: ${muted};`,
-      `  --yt-spec-text-disabled: ${muted};`,
-      `  --yt-spec-icon-active-other: ${fg};`,
-      `  --yt-spec-icon-inactive: ${muted};`,
-      `  --yt-spec-icon-disabled: ${muted};`,
-      `  --yt-spec-call-to-action: ${accent};`,
-      `  --yt-spec-suggested-action: ${accent};`,
-      `  --yt-spec-themed-blue: ${accent};`,
-      `  --yt-spec-brand-button-background: ${accent};`,
-      `  --yt-spec-badge-chip-background: ${hover};`,
-      `  --yt-spec-10-percent-layer: ${border};`,
-      `  --yt-spec-20-percent-layer: ${border};`,
-      `  --yt-spec-30-percent-layer: ${border};`,
-      `  --yt-spec-touch-response: ${hover};`,
-      `  background: ${bg};`,
-      `  color: ${fg};`,
+      ":root, html, html[dark] {",
+      important("color-scheme", dark ? "dark" : "light"),
+      important("--yt-spec-base-background", bg),
+      important("--yt-spec-raised-background", bg),
+      important("--yt-spec-menu-background", elevated),
+      important("--yt-spec-general-background-a", bg),
+      important("--yt-spec-general-background-b", bg),
+      important("--yt-spec-general-background-c", bg),
+      important("--yt-spec-brand-background-solid", bg),
+      important("--yt-spec-brand-background-primary", bg),
+      important("--yt-spec-brand-background-secondary", bg),
+      important("--yt-spec-text-primary", fg),
+      important("--yt-spec-text-primary-inverse", bg),
+      important("--yt-spec-text-secondary", muted),
+      important("--yt-spec-text-disabled", muted),
+      important("--yt-spec-icon-active-other", fg),
+      important("--yt-spec-icon-inactive", muted),
+      important("--yt-spec-icon-disabled", muted),
+      important("--yt-spec-call-to-action", accent),
+      important("--yt-spec-suggested-action", accent),
+      important("--yt-spec-themed-blue", accent),
+      important("--yt-spec-brand-button-background", accent),
+      important("--yt-spec-badge-chip-background", hover),
+      important("--yt-spec-10-percent-layer", border),
+      important("--yt-spec-20-percent-layer", border),
+      important("--yt-spec-30-percent-layer", border),
+      important("--yt-spec-touch-response", hover),
+      important("background", bg),
+      important("color", fg),
       "}",
+      `html, body { background: ${bg} !important; color: ${fg} !important; }`,
       `::selection { background: ${accent}; color: ${accentFg}; }`,
     ].join("\n");
   }
@@ -108,7 +114,7 @@
     if (!style) {
       style = document.createElement("style");
       style.id = STYLE_ID;
-      document.documentElement.appendChild(style);
+      (document.head || document.documentElement).appendChild(style);
     }
     style.textContent = buildCss(theme);
 

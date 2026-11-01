@@ -147,3 +147,71 @@ pub fn sanitize_id(value: &str) -> String {
         sanitized.chars().take(64).collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("ytdesktop-manifest-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn reads_a_chromium_manifest_with_a_snake_case_version() {
+        let dir = temp_dir("chromium");
+        let path = dir.join("manifest.json");
+        std::fs::write(
+            &path,
+            r#"{"manifest_version":3,"name":"Sample","version":"1.2.3","permissions":["storage"]}"#,
+        )
+        .expect("write manifest");
+
+        let manifest = read_chromium_manifest(&path)
+            .expect("read manifest")
+            .expect("manifest present");
+
+        assert_eq!(manifest.manifest_version, 3);
+        assert_eq!(manifest.name, "Sample");
+        assert_eq!(manifest.version, "1.2.3");
+        assert_eq!(manifest.permissions, vec!["storage"]);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rejects_a_manifest_without_manifest_version() {
+        let dir = temp_dir("missing-version");
+        let path = dir.join("manifest.json");
+        std::fs::write(
+            &path,
+            r#"{"manifestVersion":3,"name":"Sample","version":"1.0"}"#,
+        )
+        .expect("write manifest");
+
+        assert!(read_chromium_manifest(&path).is_err());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn accepts_supported_version_formats() {
+        for version in ["1", "1.2", "1.2.3", "1.2.3.4"] {
+            assert!(validate_version(version).is_ok(), "{version}");
+        }
+
+        for version in ["", "1.", ".1", "1.2a", "1..2"] {
+            assert!(validate_version(version).is_err(), "{version}");
+        }
+    }
+
+    #[test]
+    fn sanitizes_folder_names_into_ids() {
+        assert_eq!(sanitize_id("My Extension!"), "my-extension");
+        assert_eq!(sanitize_id("   "), "extension");
+        assert_eq!(sanitize_id("A_B.C-d"), "a_b.c-d");
+    }
+}

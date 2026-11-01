@@ -255,3 +255,137 @@ fn labels_for(language: &str) -> RpcLabels {
 fn truncate(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn playing_snapshot() -> PlayerSnapshot {
+        PlayerSnapshot {
+            video_id: Some("abc".into()),
+            title: Some("A video".into()),
+            channel: Some("A channel".into()),
+            channel_url: Some("https://www.youtube.com/@channel".into()),
+            artwork_url: Some("https://i.ytimg.com/vi/abc/hqdefault.jpg".into()),
+            url: Some("https://www.youtube.com/watch?v=abc".into()),
+            is_playing: true,
+            position_secs: Some(30.0),
+            duration_secs: Some(90.0),
+            ..Default::default()
+        }
+    }
+
+    fn enabled_settings() -> RpcSettings {
+        RpcSettings {
+            enabled: true,
+            app_id: "123".into(),
+            music_app_id: "456".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn selects_the_music_application_when_configured() {
+        let mut settings = enabled_settings();
+
+        assert_eq!(app_id_for(&settings, true), "456");
+        assert_eq!(app_id_for(&settings, false), "123");
+
+        settings.music_app_id = "   ".into();
+        assert_eq!(app_id_for(&settings, true), "123");
+    }
+
+    #[test]
+    fn builds_an_activity_with_timestamps_and_buttons() {
+        let activity =
+            build_activity(&playing_snapshot(), &enabled_settings(), "en").expect("activity");
+
+        assert_eq!(activity.details, "A video");
+        assert_eq!(activity.state, "by A channel");
+        assert_eq!(activity.small_image_key.as_deref(), Some("play"));
+        assert_eq!(activity.small_image_text.as_deref(), Some("Playing"));
+        assert_eq!(activity.large_image_text.as_deref(), Some("A video"));
+        assert_eq!(activity.buttons.len(), 2);
+        assert_eq!(
+            activity.buttons[0].url,
+            "https://www.youtube.com/watch?v=abc"
+        );
+        assert_eq!(activity.buttons[1].url, "https://www.youtube.com/@channel");
+
+        let start = activity.start_timestamp.expect("start");
+        let end = activity.end_timestamp.expect("end");
+        assert_eq!(end - start, 90_000);
+        assert!((now_millis() - 30_000 - start).abs() < 5_000);
+    }
+
+    #[test]
+    fn keeps_only_the_start_for_livestreams() {
+        let mut snapshot = playing_snapshot();
+        snapshot.is_livestream = true;
+        snapshot.duration_secs = Some(f64::INFINITY);
+
+        let activity = build_activity(&snapshot, &enabled_settings(), "en").expect("activity");
+
+        assert!(activity.start_timestamp.is_some());
+        assert!(activity.end_timestamp.is_none());
+    }
+
+    #[test]
+    fn clears_the_activity_without_a_video() {
+        assert!(build_activity(&PlayerSnapshot::default(), &enabled_settings(), "en").is_none());
+    }
+
+    #[test]
+    fn clears_the_activity_when_paused_and_idle_is_enabled() {
+        let mut snapshot = playing_snapshot();
+        snapshot.is_playing = false;
+
+        assert!(build_activity(&snapshot, &enabled_settings(), "en").is_none());
+    }
+
+    #[test]
+    fn keeps_the_activity_when_paused_and_idle_is_disabled() {
+        let mut snapshot = playing_snapshot();
+        snapshot.is_playing = false;
+
+        let mut settings = enabled_settings();
+        settings.idle_when_paused = false;
+
+        let activity = build_activity(&snapshot, &settings, "en").expect("activity");
+        assert_eq!(activity.small_image_key.as_deref(), Some("pause"));
+        assert_eq!(activity.small_image_text.as_deref(), Some("Paused"));
+    }
+
+    #[test]
+    fn respects_the_button_settings() {
+        let mut settings = enabled_settings();
+        settings.show_video_button = false;
+        settings.show_channel_button = false;
+
+        let activity = build_activity(&playing_snapshot(), &settings, "en").expect("activity");
+
+        assert!(activity.buttons.is_empty());
+    }
+
+    #[test]
+    fn omits_timestamps_when_disabled() {
+        let mut settings = enabled_settings();
+        settings.show_timestamps = false;
+
+        let activity = build_activity(&playing_snapshot(), &settings, "en").expect("activity");
+
+        assert!(activity.start_timestamp.is_none());
+        assert!(activity.end_timestamp.is_none());
+    }
+
+    #[test]
+    fn uses_portuguese_labels() {
+        let activity =
+            build_activity(&playing_snapshot(), &enabled_settings(), "pt-BR").expect("activity");
+
+        assert_eq!(activity.state, "por A channel");
+        assert_eq!(activity.small_image_text.as_deref(), Some("Reproduzindo"));
+        assert_eq!(activity.buttons[0].label, "Assistir no YouTube");
+        assert_eq!(activity.buttons[1].label, "Abrir canal");
+    }
+}

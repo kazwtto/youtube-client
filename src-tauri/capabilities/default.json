@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the app's local UI.",
+  "description": "Permissions for the app's local interface.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,6 +9,22 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-is-maximized",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "allow-app-version",
+    "allow-set-webview-visible",
+    "allow-yt-navigate",
+    "allow-theme-list",
+    "allow-theme-get",
+    "allow-settings-get",
+    "allow-settings-update",
+    "allow-extensions-list",
+    "allow-extensions-install",
+    "allow-extensions-uninstall",
+    "allow-extensions-set-enabled",
+    "allow-rpc-status",
+    "allow-history-list",
+    "allow-history-clear",
+    "allow-history-delete",
+    "allow-player-snapshot"
   ]
 }

@@ -105,3 +105,107 @@ impl WatchTracker {
         self.current = None;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot(video_id: &str, position: f64, playing: bool) -> PlayerSnapshot {
+        PlayerSnapshot {
+            video_id: Some(video_id.into()),
+            title: Some(format!("Video {video_id}")),
+            channel: Some("Channel".into()),
+            artwork_url: Some(format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")),
+            is_playing: playing,
+            position_secs: Some(position),
+            duration_secs: Some(120.0),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn counts_playback_until_the_minimum_is_reached() {
+        let mut tracker = WatchTracker::default();
+
+        assert_eq!(tracker.observe(&snapshot("a", 0.0, true), 5.0), None);
+        assert_eq!(tracker.observe(&snapshot("a", 2.0, true), 5.0), None);
+        assert_eq!(tracker.observe(&snapshot("a", 4.0, true), 5.0), None);
+
+        let record = tracker
+            .observe(&snapshot("a", 6.0, true), 5.0)
+            .expect("minimum reached");
+
+        assert_eq!(record.video_id, "a");
+        assert_eq!(record.title, "Video a");
+        assert_eq!(record.channel, "Channel");
+        assert_eq!(record.duration_secs, Some(120.0));
+        assert_eq!(
+            record.thumbnail_url.as_deref(),
+            Some("https://i.ytimg.com/vi/a/hqdefault.jpg")
+        );
+    }
+
+    #[test]
+    fn ignores_large_position_jumps_after_seeking() {
+        let mut tracker = WatchTracker::default();
+
+        tracker.observe(&snapshot("a", 0.0, true), 5.0);
+        tracker.observe(&snapshot("a", 2.0, true), 5.0);
+        assert_eq!(tracker.observe(&snapshot("a", 100.0, true), 5.0), None);
+        assert_eq!(tracker.observe(&snapshot("a", 102.0, true), 5.0), None);
+
+        let record = tracker
+            .observe(&snapshot("a", 105.0, true), 5.0)
+            .expect("only sampled playback is counted");
+
+        assert_eq!(record.video_id, "a");
+    }
+
+    #[test]
+    fn does_not_count_paused_time() {
+        let mut tracker = WatchTracker::default();
+
+        tracker.observe(&snapshot("a", 0.0, true), 5.0);
+        tracker.observe(&snapshot("a", 2.0, true), 5.0);
+        tracker.observe(&snapshot("a", 4.0, false), 5.0);
+        tracker.observe(&snapshot("a", 20.0, false), 5.0);
+        tracker.observe(&snapshot("a", 20.0, true), 5.0);
+
+        assert_eq!(tracker.observe(&snapshot("a", 22.0, true), 5.0), None);
+        assert!(tracker.observe(&snapshot("a", 24.0, true), 5.0).is_some());
+    }
+
+    #[test]
+    fn records_a_session_only_once() {
+        let mut tracker = WatchTracker::default();
+
+        tracker.observe(&snapshot("a", 0.0, true), 5.0);
+        tracker.observe(&snapshot("a", 2.0, true), 5.0);
+        assert!(tracker.observe(&snapshot("a", 6.0, true), 5.0).is_some());
+        assert_eq!(tracker.observe(&snapshot("a", 10.0, true), 5.0), None);
+    }
+
+    #[test]
+    fn resets_when_the_video_changes() {
+        let mut tracker = WatchTracker::default();
+
+        tracker.observe(&snapshot("a", 0.0, true), 5.0);
+        tracker.observe(&snapshot("a", 2.0, true), 5.0);
+        assert!(tracker.observe(&snapshot("a", 6.0, true), 5.0).is_some());
+
+        tracker.observe(&snapshot("b", 0.0, true), 5.0);
+        assert_eq!(tracker.observe(&snapshot("b", 2.0, true), 5.0), None);
+        assert!(tracker.observe(&snapshot("b", 5.0, true), 5.0).is_some());
+    }
+
+    #[test]
+    fn restarts_when_the_player_reports_no_video() {
+        let mut tracker = WatchTracker::default();
+
+        tracker.observe(&snapshot("a", 0.0, true), 5.0);
+        tracker.observe(&snapshot("a", 4.0, true), 5.0);
+        assert_eq!(tracker.observe(&PlayerSnapshot::default(), 5.0), None);
+        assert_eq!(tracker.observe(&snapshot("a", 8.0, true), 5.0), None);
+        assert!(tracker.observe(&snapshot("a", 13.0, true), 5.0).is_some());
+    }
+}

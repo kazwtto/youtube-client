@@ -94,19 +94,6 @@ export interface RpcStatus {
   detail: string | null;
 }
 
-export interface PlayerSnapshot {
-  videoId: string | null;
-  title: string | null;
-  channel: string | null;
-  channelUrl: string | null;
-  artworkUrl: string | null;
-  url: string | null;
-  isPlaying: boolean;
-  isLivestream: boolean;
-  positionSecs: number | null;
-  durationSecs: number | null;
-}
-
 export type NavigationAction = "back" | "forward" | "home" | "reload";
 
 export const api = {
@@ -121,9 +108,6 @@ export const api = {
   themeList: (): Promise<ThemeSummary[]> => invoke<ThemeSummary[]>("theme_list"),
 
   themeGet: (): Promise<ResolvedTheme> => invoke<ResolvedTheme>("theme_get"),
-
-  themeUpdate: (theme: ThemeSettings): Promise<ResolvedTheme> =>
-    invoke<ResolvedTheme>("theme_update", { theme }),
 
   settingsGet: (): Promise<AppSettings> => invoke<AppSettings>("settings_get"),
 
@@ -143,9 +127,6 @@ export const api = {
     invoke<ExtensionSummary[]>("extensions_set_enabled", { id, enabled }),
 
   rpcStatus: (): Promise<RpcStatus> => invoke<RpcStatus>("rpc_status"),
-
-  rpcUpdate: (snapshot: PlayerSnapshot): Promise<RpcStatus> =>
-    invoke<RpcStatus>("rpc_update", { snapshot }),
 
   historyList: (query: HistoryQuery): Promise<HistoryEntry[]> =>
     invoke<HistoryEntry[]>("history_list", { query }),

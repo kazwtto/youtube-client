@@ -172,10 +172,9 @@ when **Keep local thumbnails** is enabled.
 ## IPC commands
 
 `app_version`, `set_webview_visible`, `yt_navigate`, `theme_list`, `theme_get`,
-`theme_update`, `settings_get`, `settings_update`, `extensions_list`,
-`extensions_install`, `extensions_uninstall`, `extensions_set_enabled`,
-`rpc_status`, `rpc_update`, `history_list`, `history_clear`, `history_delete`,
-and `player_snapshot`.
+`settings_get`, `settings_update`, `extensions_list`, `extensions_install`,
+`extensions_uninstall`, `extensions_set_enabled`, `rpc_status`, `history_list`,
+`history_clear`, `history_delete`, and `player_snapshot`.
 
 ## Notice
 

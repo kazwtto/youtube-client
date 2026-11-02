@@ -152,7 +152,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
             aria-label="${t("titlebar.clearSearch")}"
             hidden
           >
-            <svg viewBox="0 0 24 24" width="18" height="18" focusable="false" style="pointer-events: none;"><path d="M12.7 12l6.6 6.6-0.7 0.7-6.6-6.6-6.6 6.6-0.7-0.7 6.6-6.6-6.6-6.6 0.7-0.7 6.6 6.6 6.6-6.6 0.7 0.7-6.6 6.6z" fill="currentColor"></path></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" focusable="false" style="pointer-events: none;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"></path></svg>
           </button>
         </div>
         <button
@@ -161,8 +161,8 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
           title="${t("titlebar.search")}"
           aria-label="${t("titlebar.search")}"
         >
-          <svg viewBox="0 0 24 24" width="18" height="18" focusable="false" style="pointer-events: none;">
-            <path d="M20.87 20.17l-5.59-5.59A7.95 7.95 0 0017 9.5a8 8 0 10-8 8 7.95 7.95 0 005.08-1.72l5.59 5.59a.5.5 0 00.7 0l.5-.5a.5.5 0 000-.7zM9.5 16A6.5 6.5 0 1116 9.5 6.51 6.51 0 019.5 16z" fill="currentColor"></path>
+          <svg viewBox="0 0 24 24" width="20" height="20" focusable="false" aria-hidden="true" style="pointer-events: none; display: inherit;">
+            <path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z" fill="currentColor"></path>
           </svg>
         </button>
       </div>
@@ -173,8 +173,8 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         aria-label="${t("titlebar.voiceSearch")}"
         data-action="voice"
       >
-        <svg viewBox="0 0 24 24" width="18" height="18" focusable="false" style="pointer-events: none;">
-          <path d="M12 3c-1.66 0-3 1.37-3 3.07v5.86c0 1.7 1.34 3.07 3 3.07s3-1.37 3-3.07V6.07C15 4.37 13.66 3 12 3zm6.5 6.07c0 3.32-2.69 6.02-6 6.02s-6-2.7-6-6.02H5c0 3.86 3.14 7 7 7s7-3.14 7-7h-1.5z" fill="currentColor"></path>
+        <svg viewBox="0 0 24 24" width="20" height="20" focusable="false" aria-hidden="true" style="pointer-events: none; display: inherit;">
+          <path d="M18.063 14.5a1 1 0 111.73 1A8.998 8.998 0 0113 19.942V22a1 1 0 11-2 0v-2.058A8.999 8.999 0 014.206 15.5l.866-.5.865-.5a7.002 7.002 0 0012.125 0ZM12 1a5 5 0 015 5v5a5 5 0 01-10 0V6a5 5 0 015-5ZM4.572 14.134a1 1 0 011.365.366l-1.731 1a1 1 0 01.366-1.366ZM12 3a3 3 0 00-3 3v5a3 3 0 106 0V6a3 3 0 00-3-3Z" fill="currentColor"></path>
         </svg>
       </button>
       <div class="titlebar__search-suggestions" hidden></div>
@@ -193,8 +193,8 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         data-action="toggle-auth-menu"
         title="${t("titlebar.login")}"
       >
-        <svg viewBox="0 0 24 24" width="18" height="18" focusable="false" style="pointer-events: none;">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-4.43-.82-6.14-2.88C7.55 15.8 9.68 15 12 15s4.45.8 6.14 2.12C16.43 19.18 14.03 20 12 20z" fill="currentColor"></path>
+        <svg viewBox="0 0 24 24" width="20" height="20" focusable="false" aria-hidden="true" style="pointer-events: none; display: inherit;">
+          <path d="M12 1C5.925 1 1 5.925 1 12s4.925 11 11 11 11-4.925 11-11S18.075 1 12 1Zm0 2a9 9 0 016.447 15.276 7 7 0 00-12.895 0A9 9 0 0112 3Zm0 2a4 4 0 100 8 4 4 0 000-8Zm0 2a2 2 0 110 4 2 2 0 010-4Zm-.1 9.001L11.899 16a5 5 0 014.904 3.61A8.96 8.96 0 0112 21a8.96 8.96 0 01-4.804-1.391 5 5 0 014.704-3.608Z" fill="currentColor"></path>
         </svg>
         <span class="titlebar__login-label">${t("titlebar.login")}</span>
       </button>
@@ -206,8 +206,8 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         title="Mais opções"
         aria-label="Mais opções"
       >
-        <svg viewBox="0 0 24 24" width="18" height="18" focusable="false" style="pointer-events: none;">
-          <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" fill="currentColor"></path>
+        <svg viewBox="0 0 24 24" width="20" height="20" focusable="false" aria-hidden="true" style="pointer-events: none; display: inherit;">
+          <path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z" fill="currentColor"></path>
         </svg>
       </button>
 
@@ -303,11 +303,11 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       .map(
         (item, idx) => `
         <div class="titlebar__suggestion-item ${item.isHistory ? "titlebar__suggestion-item--history" : ""}" data-index="${idx}" data-query="${escapeHtml(item.text)}">
-          <svg viewBox="0 0 24 24" width="16" height="16" class="titlebar__suggestion-icon" focusable="false" style="pointer-events: none;">
+          <svg viewBox="0 0 24 24" width="18" height="18" class="titlebar__suggestion-icon" focusable="false" style="pointer-events: none;">
             ${
               item.isHistory
-                ? '<path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.1.8-1.3-4.5-2.7V7z" fill="currentColor"></path>'
-                : '<path d="M20.87 20.17l-5.59-5.59A7.95 7.95 0 0017 9.5a8 8 0 10-8 8 7.95 7.95 0 005.08-1.72l5.59 5.59a.5.5 0 00.7 0l.5-.5a.5.5 0 000-.7zM9.5 16A6.5 6.5 0 1116 9.5 6.51 6.51 0 019.5 16z" fill="currentColor"></path>'
+                ? '<path d="M14.97 16.95L10 13.87V7h2v5.76l4.03 2.49-1.06 1.7zM12 3c-4.96 0-9 4.04-9 9s4.04 9 9 9 9-4.04 9-9-4.04-9-9-9m0-1c5.52 0 10 4.48 10 10s-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z" fill="currentColor"></path>'
+                : '<path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z" fill="currentColor"></path>'
             }
           </svg>
           <span class="titlebar__suggestion-text">${escapeHtml(item.text)}</span>
@@ -315,7 +315,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
             item.isHistory
               ? `
               <button type="button" class="titlebar__suggestion-remove" data-remove-query="${escapeHtml(item.text)}" title="Remover do histórico" aria-label="Remover">
-                <svg viewBox="0 0 24 24" width="14" height="14" style="pointer-events: none;"><path d="M12.7 12l6.6 6.6-0.7 0.7-6.6-6.6-6.6 6.6-0.7-0.7 6.6-6.6-6.6-6.6 0.7-0.7 6.6 6.6 6.6-6.6 0.7 0.7-6.6 6.6z" fill="currentColor"></path></svg>
+                <svg viewBox="0 0 24 24" width="16" height="16" style="pointer-events: none;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"></path></svg>
               </button>`
               : ""
           }
@@ -473,7 +473,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
       contextBody.innerHTML = `
         <button type="button" class="yt-context-menu__item" data-menu-action="channel">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-4.43-.82-6.14-2.88C7.55 15.8 9.68 15 12 15s4.45.8 6.14 2.12C16.43 19.18 14.03 20 12 20z" fill="currentColor"></path></svg>
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 1C5.925 1 1 5.925 1 12s4.925 11 11 11 11-4.925 11-11S18.075 1 12 1Zm0 2a9 9 0 016.447 15.276 7 7 0 00-12.895 0A9 9 0 0112 3Zm0 2a4 4 0 100 8 4 4 0 000-8Zm0 2a2 2 0 110 4 2 2 0 010-4Zm-.1 9.001L11.899 16a5 5 0 014.904 3.61A8.96 8.96 0 0112 21a8.96 8.96 0 01-4.804-1.391 5 5 0 014.704-3.608Z" fill="currentColor"></path></svg>
           <span>Seu canal</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="studio">
@@ -511,7 +511,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       contextHeader.hidden = true;
       contextBody.innerHTML = `
         <button type="button" class="yt-context-menu__item yt-context-menu__item--highlight" data-menu-action="login">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-4.43-.82-6.14-2.88C7.55 15.8 9.68 15 12 15s4.45.8 6.14 2.12C16.43 19.18 14.03 20 12 20z" fill="currentColor"></path></svg>
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 1C5.925 1 1 5.925 1 12s4.925 11 11 11 11-4.925 11-11S18.075 1 12 1Zm0 2a9 9 0 016.447 15.276 7 7 0 00-12.895 0A9 9 0 0112 3Zm0 2a4 4 0 100 8 4 4 0 000-8Zm0 2a2 2 0 110 4 2 2 0 010-4Zm-.1 9.001L11.899 16a5 5 0 014.904 3.61A8.96 8.96 0 0112 21a8.96 8.96 0 01-4.804-1.391 5 5 0 014.704-3.608Z" fill="currentColor"></path></svg>
           <span>Fazer login</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="your-data">

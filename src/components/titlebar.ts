@@ -19,6 +19,7 @@ export interface Titlebar {
   setStyle: (style: TitlebarStyle) => void;
   setMastheadIntegrated: (integrated: boolean) => void;
   setAuth: (auth: AuthSnapshot) => void;
+  updateLanguage: () => void;
 }
 
 interface Tab {
@@ -693,10 +694,93 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
     }
   }
 
+  function updateLanguage(): void {
+    for (const btn of tabsNav.querySelectorAll<HTMLButtonElement>(".titlebar__tab")) {
+      const route = btn.dataset.route as RouteId;
+      const tab = TABS.find((t) => t.id === route);
+      if (tab) {
+        btn.title = t(tab.labelKey);
+        const labelSpan = btn.querySelector(".titlebar__tab-label");
+        if (labelSpan) {
+          labelSpan.textContent = t(tab.labelKey);
+        }
+      }
+    }
+
+    for (const btn of iconsNav.querySelectorAll<HTMLButtonElement>(".titlebar__button--app")) {
+      const route = btn.dataset.route as RouteId;
+      const tab = TABS.find((t) => t.id === route);
+      if (tab) {
+        btn.title = t(tab.labelKey);
+        btn.setAttribute("aria-label", t(tab.labelKey));
+      }
+    }
+
+    guideButton.title = t("titlebar.guide");
+    guideButton.setAttribute("aria-label", t("titlebar.guide"));
+
+    const backBtn = bar.querySelector<HTMLButtonElement>('[data-action="back"]');
+    if (backBtn) {
+      backBtn.title = t("titlebar.back");
+      backBtn.setAttribute("aria-label", t("titlebar.back"));
+    }
+    const forwardBtn = bar.querySelector<HTMLButtonElement>('[data-action="forward"]');
+    if (forwardBtn) {
+      forwardBtn.title = t("titlebar.forward");
+      forwardBtn.setAttribute("aria-label", t("titlebar.forward"));
+    }
+    const reloadBtn = bar.querySelector<HTMLButtonElement>('[data-action="reload"]');
+    if (reloadBtn) {
+      reloadBtn.title = t("titlebar.reload");
+      reloadBtn.setAttribute("aria-label", t("titlebar.reload"));
+    }
+
+    searchInput.placeholder = t("titlebar.search");
+    searchInput.setAttribute("aria-label", t("titlebar.search"));
+    searchClear.title = t("titlebar.clearSearch");
+    searchClear.setAttribute("aria-label", t("titlebar.clearSearch"));
+    searchSubmit.title = t("titlebar.search");
+    searchSubmit.setAttribute("aria-label", t("titlebar.search"));
+
+    const voiceBtn = bar.querySelector<HTMLButtonElement>('[data-action="voice"]');
+    if (voiceBtn) {
+      voiceBtn.title = t("titlebar.voiceSearch");
+      voiceBtn.setAttribute("aria-label", t("titlebar.voiceSearch"));
+    }
+
+    loginButton.title = t("titlebar.login");
+    const loginLabel = loginButton.querySelector(".titlebar__login-label");
+    if (loginLabel) {
+      loginLabel.textContent = t("titlebar.login");
+    }
+
+    avatarButton.title = t("titlebar.account");
+
+    const minBtn = bar.querySelector<HTMLButtonElement>('[data-action="minimize"]');
+    if (minBtn) {
+      minBtn.title = t("titlebar.minimize");
+      minBtn.setAttribute("aria-label", t("titlebar.minimize"));
+    }
+    const closeBtn = bar.querySelector<HTMLButtonElement>('[data-action="close"]');
+    if (closeBtn) {
+      closeBtn.title = t("titlebar.close");
+      closeBtn.setAttribute("aria-label", t("titlebar.close"));
+    }
+    void syncMaximizeIcon();
+  }
+
   void syncMaximizeIcon();
   void appWindow.onResized(() => {
     void syncMaximizeIcon();
   });
 
-  return { element: bar, setActive, setRpcStatus, setStyle, setMastheadIntegrated, setAuth };
+  return {
+    element: bar,
+    setActive,
+    setRpcStatus,
+    setStyle,
+    setMastheadIntegrated,
+    setAuth,
+    updateLanguage,
+  };
 }

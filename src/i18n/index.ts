@@ -18,6 +18,14 @@ const dictionaries: Record<Language, Record<TranslationKey, string>> = {
 
 let current: Language = "en";
 
+type LanguageListener = (lang: Language) => void;
+const languageListeners = new Set<LanguageListener>();
+
+export function onLanguageChange(listener: LanguageListener): () => void {
+  languageListeners.add(listener);
+  return () => languageListeners.delete(listener);
+}
+
 export function normalizeLanguage(value: string | null | undefined): Language {
   return value?.toLowerCase().startsWith("pt") ? "pt-BR" : "en";
 }
@@ -31,8 +39,16 @@ export function getLocale(): string {
 }
 
 export function setLanguage(value: string): void {
-  current = normalizeLanguage(value);
+  const next = normalizeLanguage(value);
+  current = next;
   document.documentElement.lang = current;
+  for (const listener of languageListeners) {
+    try {
+      listener(current);
+    } catch (e) {
+      console.error("language listener error:", e);
+    }
+  }
 }
 
 export async function initI18n(): Promise<void> {

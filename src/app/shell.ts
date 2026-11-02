@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 
 import { createTitlebar } from "../components/titlebar";
-import { t } from "../i18n";
+import { onLanguageChange, t } from "../i18n";
 import { api, type AppSettings, type AuthSnapshot, type RpcStatus } from "../lib/api";
 import { renderExtensions } from "../pages/extensions";
 import { renderHistory } from "../pages/history";
@@ -113,6 +113,10 @@ export function createShell(root: HTMLElement): void {
     titlebar.setStyle(event.payload.general.titlebarStyle);
     titlebar.setMastheadIntegrated(event.payload.general.integrateMasthead);
   }).catch(() => undefined);
+
+  onLanguageChange(() => {
+    titlebar.updateLanguage();
+  });
 
   void listen<AuthSnapshot>("youtube://auth", (event) => {
     titlebar.setAuth(event.payload);

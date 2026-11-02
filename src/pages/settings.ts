@@ -1,6 +1,7 @@
 import {
   LANGUAGES,
   normalizeLanguage,
+  setLanguage,
   t,
   type TranslationKey,
 } from "../i18n";
@@ -25,7 +26,7 @@ function themeName(theme: ThemeSummary): string {
   return key ? t(key) : theme.name;
 }
 
-export async function renderSettings(host: HTMLElement): Promise<void> {
+export async function renderSettings(host: HTMLElement, initialTab = "appearance"): Promise<void> {
   const [settings, themes, version] = await Promise.all([
     api.settingsGet(),
     api.themeList(),
@@ -396,7 +397,10 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
       const language = normalizeLanguage(current.general.language);
       if (language !== languageAtLoad) {
         languageAtLoad = language;
-        window.location.reload();
+        setLanguage(language);
+        const activeTab = host.querySelector<HTMLButtonElement>(".settings-nav__item.is-active")?.dataset.tab || "appearance";
+        void renderSettings(host, activeTab);
+        return;
       }
     } catch (error) {
       setStatus(t("common.error", { error: String(error) }), "error");
@@ -478,4 +482,6 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
       }
     });
   }
+
+  switchTab(initialTab);
 }

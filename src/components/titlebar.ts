@@ -34,6 +34,40 @@ const TABS: readonly Tab[] = [
   { id: "settings", labelKey: "nav.settings", icon: "settings" },
 ];
 
+const SEARCH_HISTORY_KEY = "ytdesktop_search_history";
+
+function getSearchHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.filter((item) => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSearchHistoryQuery(query: string): void {
+  const trimmed = query.trim();
+  if (!trimmed) return;
+  try {
+    const current = getSearchHistory().filter((item) => item.toLowerCase() !== trimmed.toLowerCase());
+    current.unshift(trimmed);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(current.slice(0, 15)));
+  } catch {
+    // Ignore storage quota
+  }
+}
+
+function removeSearchHistoryQuery(query: string): void {
+  try {
+    const current = getSearchHistory().filter((item) => item.toLowerCase() !== query.toLowerCase());
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(current));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function createTitlebar(actions: TitlebarActions): Titlebar {
   const bar = document.createElement("header");
   bar.className = "titlebar";
@@ -100,10 +134,6 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       ${tabButtons}
     </nav>
 
-    <div class="titlebar__group titlebar__icons" role="group" aria-label="${t("titlebar.appActions")}" hidden>
-      ${iconButtons}
-    </div>
-
     <div class="titlebar__search-container" role="search" hidden>
       <div class="titlebar__search-box">
         <div class="titlebar__search-input-wrapper">
@@ -152,11 +182,15 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
     <div class="titlebar__spacer" data-tauri-drag-region></div>
 
+    <div class="titlebar__group titlebar__icons" role="group" aria-label="${t("titlebar.appActions")}" hidden>
+      ${iconButtons}
+    </div>
+
     <div class="titlebar__auth-container" hidden>
       <button
         type="button"
         class="titlebar__login-button"
-        data-action="login"
+        data-action="toggle-auth-menu"
         title="${t("titlebar.login")}"
       >
         <svg viewBox="0 0 24 24" width="18" height="18" focusable="false" style="pointer-events: none;">
@@ -167,13 +201,36 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
       <button
         type="button"
+        class="titlebar__button titlebar__button--more"
+        data-action="toggle-auth-menu"
+        title="Mais opções"
+        aria-label="Mais opções"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" focusable="false" style="pointer-events: none;">
+          <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" fill="currentColor"></path>
+        </svg>
+      </button>
+
+      <button
+        type="button"
         class="titlebar__avatar-button"
-        data-action="avatar"
+        data-action="toggle-auth-menu"
         title="${t("titlebar.account")}"
         hidden
       >
         <img class="titlebar__avatar-img" alt="${t("titlebar.account")}" src="" />
       </button>
+
+      <div class="yt-context-menu" hidden>
+        <div class="yt-context-menu__header" hidden>
+          <img class="yt-context-menu__header-avatar" src="" alt="Avatar" />
+          <div class="yt-context-menu__header-info">
+            <span class="yt-context-menu__header-name"></span>
+            <span class="yt-context-menu__header-handle"></span>
+          </div>
+        </div>
+        <div class="yt-context-menu__body"></div>
+      </div>
     </div>
 
     <div class="titlebar__group titlebar__controls" role="group" aria-label="${t("titlebar.windowControls")}">
@@ -194,19 +251,31 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
   const searchSubmit = bar.querySelector<HTMLButtonElement>(".titlebar__search-submit")!;
   const suggestionsBox = bar.querySelector<HTMLElement>(".titlebar__search-suggestions")!;
   const authContainer = bar.querySelector<HTMLElement>(".titlebar__auth-container")!;
-  const loginButton = bar.querySelector<HTMLButtonElement>('[data-action="login"]')!;
-  const avatarButton = bar.querySelector<HTMLButtonElement>('[data-action="avatar"]')!;
+  const loginButton = bar.querySelector<HTMLButtonElement>('.titlebar__login-button')!;
+  const moreButton = bar.querySelector<HTMLButtonElement>('.titlebar__button--more')!;
+  const avatarButton = bar.querySelector<HTMLButtonElement>('.titlebar__avatar-button')!;
   const avatarImg = bar.querySelector<HTMLImageElement>(".titlebar__avatar-img")!;
+  const contextMenu = bar.querySelector<HTMLElement>(".yt-context-menu")!;
+  const contextHeader = contextMenu.querySelector<HTMLElement>(".yt-context-menu__header")!;
+  const contextHeaderAvatar = contextMenu.querySelector<HTMLImageElement>(".yt-context-menu__header-avatar")!;
+  const contextHeaderName = contextMenu.querySelector<HTMLElement>(".yt-context-menu__header-name")!;
+  const contextHeaderHandle = contextMenu.querySelector<HTMLElement>(".yt-context-menu__header-handle")!;
+  const contextBody = contextMenu.querySelector<HTMLElement>(".yt-context-menu__body")!;
 
-  let currentSuggestions: string[] = [];
-  let selectedSuggestionIndex = -1;
+  let currentAuth: AuthSnapshot = { loggedIn: false };
+  let currentItems: { text: string; isHistory: boolean }[] = [];
+  let selectedIndex = -1;
   let suggestTimer: number | undefined;
 
   const closeSuggestions = (): void => {
     suggestionsBox.hidden = true;
     suggestionsBox.replaceChildren();
-    currentSuggestions = [];
-    selectedSuggestionIndex = -1;
+    currentItems = [];
+    selectedIndex = -1;
+  };
+
+  const closeContextMenu = (): void => {
+    contextMenu.hidden = true;
   };
 
   const submitSearch = (query: string): void => {
@@ -214,6 +283,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
     if (!q) {
       return;
     }
+    saveSearchHistoryQuery(q);
     closeSuggestions();
     searchInput.value = q;
     searchClear.hidden = false;
@@ -221,22 +291,34 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
     void api.ytNavigate(`search:${encodeURIComponent(q)}`);
   };
 
-  const renderSuggestions = (list: string[]): void => {
-    currentSuggestions = list;
-    selectedSuggestionIndex = -1;
-    if (list.length === 0) {
+  const renderDropdown = (items: { text: string; isHistory: boolean }[]): void => {
+    currentItems = items;
+    selectedIndex = -1;
+    if (items.length === 0) {
       closeSuggestions();
       return;
     }
 
-    suggestionsBox.innerHTML = list
+    suggestionsBox.innerHTML = items
       .map(
         (item, idx) => `
-        <div class="titlebar__suggestion-item" data-index="${idx}">
+        <div class="titlebar__suggestion-item ${item.isHistory ? "titlebar__suggestion-item--history" : ""}" data-index="${idx}" data-query="${escapeHtml(item.text)}">
           <svg viewBox="0 0 24 24" width="16" height="16" class="titlebar__suggestion-icon" focusable="false" style="pointer-events: none;">
-            <path d="M20.87 20.17l-5.59-5.59A7.95 7.95 0 0017 9.5a8 8 0 10-8 8 7.95 7.95 0 005.08-1.72l5.59 5.59a.5.5 0 00.7 0l.5-.5a.5.5 0 000-.7zM9.5 16A6.5 6.5 0 1116 9.5 6.51 6.51 0 019.5 16z" fill="currentColor"></path>
+            ${
+              item.isHistory
+                ? '<path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.1.8-1.3-4.5-2.7V7z" fill="currentColor"></path>'
+                : '<path d="M20.87 20.17l-5.59-5.59A7.95 7.95 0 0017 9.5a8 8 0 10-8 8 7.95 7.95 0 005.08-1.72l5.59 5.59a.5.5 0 00.7 0l.5-.5a.5.5 0 000-.7zM9.5 16A6.5 6.5 0 1116 9.5 6.51 6.51 0 019.5 16z" fill="currentColor"></path>'
+            }
           </svg>
-          <span class="titlebar__suggestion-text">${escapeHtml(item)}</span>
+          <span class="titlebar__suggestion-text">${escapeHtml(item.text)}</span>
+          ${
+            item.isHistory
+              ? `
+              <button type="button" class="titlebar__suggestion-remove" data-remove-query="${escapeHtml(item.text)}" title="Remover do histórico" aria-label="Remover">
+                <svg viewBox="0 0 24 24" width="14" height="14" style="pointer-events: none;"><path d="M12.7 12l6.6 6.6-0.7 0.7-6.6-6.6-6.6 6.6-0.7-0.7 6.6-6.6-6.6-6.6 0.7-0.7 6.6 6.6 6.6-6.6 0.7 0.7-6.6 6.6z" fill="currentColor"></path></svg>
+              </button>`
+              : ""
+          }
         </div>`,
       )
       .join("");
@@ -244,46 +326,68 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
     suggestionsBox.hidden = false;
   };
 
-  const highlightSuggestion = (index: number): void => {
+  const updateSearchDropdown = async (): Promise<void> => {
+    const rawVal = searchInput.value;
+    const query = rawVal.trim().toLowerCase();
+    const history = getSearchHistory();
+
+    if (!query) {
+      const historyItems = history.map((text) => ({ text, isHistory: true }));
+      renderDropdown(historyItems);
+      return;
+    }
+
+    const matchedHistory = history
+      .filter((h) => h.toLowerCase().includes(query))
+      .map((text) => ({ text, isHistory: true }));
+
+    try {
+      const remote = await api.fetchSuggestions(rawVal);
+      const filteredRemote = remote
+        .filter((r) => !matchedHistory.some((h) => h.text.toLowerCase() === r.toLowerCase()))
+        .map((text) => ({ text, isHistory: false }));
+
+      const combined = [...matchedHistory, ...filteredRemote];
+      if (searchInput === document.activeElement && searchInput.value === rawVal) {
+        renderDropdown(combined);
+      }
+    } catch {
+      if (matchedHistory.length > 0) {
+        renderDropdown(matchedHistory);
+      } else {
+        closeSuggestions();
+      }
+    }
+  };
+
+  const highlightIndex = (index: number): void => {
     const items = suggestionsBox.querySelectorAll<HTMLElement>(".titlebar__suggestion-item");
     items.forEach((el, idx) => {
-      const active = idx === index;
-      el.classList.toggle("titlebar__suggestion-item--selected", active);
+      el.classList.toggle("titlebar__suggestion-item--selected", idx === index);
     });
 
-    if (index >= 0 && index < currentSuggestions.length) {
-      searchInput.value = currentSuggestions[index];
+    if (index >= 0 && index < currentItems.length) {
+      searchInput.value = currentItems[index].text;
       searchClear.hidden = false;
     }
   };
 
-  searchInput.addEventListener("input", () => {
-    const query = searchInput.value;
-    searchClear.hidden = query.length === 0;
+  searchInput.addEventListener("focus", () => {
+    void updateSearchDropdown();
+  });
 
+  searchInput.addEventListener("input", () => {
+    searchClear.hidden = searchInput.value.length === 0;
     if (suggestTimer !== undefined) {
       window.clearTimeout(suggestTimer);
     }
-
-    if (!query.trim()) {
-      closeSuggestions();
-      return;
-    }
-
-    suggestTimer = window.setTimeout(async () => {
-      try {
-        const results = await api.fetchSuggestions(query);
-        if (searchInput === document.activeElement && query === searchInput.value) {
-          renderSuggestions(results);
-        }
-      } catch {
-        closeSuggestions();
-      }
-    }, 150);
+    suggestTimer = window.setTimeout(() => {
+      void updateSearchDropdown();
+    }, 120);
   });
 
   searchInput.addEventListener("keydown", (event) => {
-    if (suggestionsBox.hidden || currentSuggestions.length === 0) {
+    if (suggestionsBox.hidden || currentItems.length === 0) {
       if (event.key === "Enter") {
         event.preventDefault();
         submitSearch(searchInput.value);
@@ -294,26 +398,20 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
     switch (event.key) {
       case "ArrowDown":
         event.preventDefault();
-        selectedSuggestionIndex =
-          selectedSuggestionIndex + 1 < currentSuggestions.length
-            ? selectedSuggestionIndex + 1
-            : 0;
-        highlightSuggestion(selectedSuggestionIndex);
+        selectedIndex = selectedIndex + 1 < currentItems.length ? selectedIndex + 1 : 0;
+        highlightIndex(selectedIndex);
         break;
 
       case "ArrowUp":
         event.preventDefault();
-        selectedSuggestionIndex =
-          selectedSuggestionIndex - 1 >= 0
-            ? selectedSuggestionIndex - 1
-            : currentSuggestions.length - 1;
-        highlightSuggestion(selectedSuggestionIndex);
+        selectedIndex = selectedIndex - 1 >= 0 ? selectedIndex - 1 : currentItems.length - 1;
+        highlightIndex(selectedIndex);
         break;
 
       case "Enter":
         event.preventDefault();
-        if (selectedSuggestionIndex >= 0 && selectedSuggestionIndex < currentSuggestions.length) {
-          submitSearch(currentSuggestions[selectedSuggestionIndex]);
+        if (selectedIndex >= 0 && selectedIndex < currentItems.length) {
+          submitSearch(currentItems[selectedIndex].text);
         } else {
           submitSearch(searchInput.value);
         }
@@ -334,25 +432,134 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
     if (!(target instanceof Element)) {
       return;
     }
-    const item = target.closest<HTMLElement>(".titlebar__suggestion-item");
-    if (!item) {
+
+    const removeBtn = target.closest<HTMLButtonElement>("[data-remove-query]");
+    if (removeBtn && removeBtn.dataset.removeQuery) {
+      event.stopPropagation();
+      removeSearchHistoryQuery(removeBtn.dataset.removeQuery);
+      void updateSearchDropdown();
+      searchInput.focus();
       return;
     }
-    const idx = Number(item.dataset.index);
-    if (!Number.isNaN(idx) && currentSuggestions[idx]) {
-      submitSearch(currentSuggestions[idx]);
+
+    const item = target.closest<HTMLElement>(".titlebar__suggestion-item");
+    if (item && item.dataset.query) {
+      submitSearch(item.dataset.query);
     }
   });
 
   searchClear.addEventListener("click", () => {
     searchInput.value = "";
     searchClear.hidden = true;
-    closeSuggestions();
     searchInput.focus();
+    void updateSearchDropdown();
   });
 
   searchSubmit.addEventListener("click", () => {
     submitSearch(searchInput.value);
+  });
+
+  const toggleAuthMenu = (): void => {
+    if (!contextMenu.hidden) {
+      closeContextMenu();
+      return;
+    }
+
+    if (currentAuth.loggedIn) {
+      contextHeader.hidden = false;
+      contextHeaderAvatar.src = currentAuth.avatarUrl || "";
+      contextHeaderName.textContent = currentAuth.displayName || "YouTube";
+      contextHeaderHandle.textContent = currentAuth.handle || "";
+
+      contextBody.innerHTML = `
+        <button type="button" class="yt-context-menu__item" data-menu-action="channel">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-4.43-.82-6.14-2.88C7.55 15.8 9.68 15 12 15s4.45.8 6.14 2.12C16.43 19.18 14.03 20 12 20z" fill="currentColor"></path></svg>
+          <span>Seu canal</span>
+        </button>
+        <button type="button" class="yt-context-menu__item" data-menu-action="studio">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="m10 15 5-3-5-3v6zm11-12H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z" fill="currentColor"></path></svg>
+          <span>YouTube Studio</span>
+        </button>
+        <button type="button" class="yt-context-menu__item" data-menu-action="switch-account">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z" fill="currentColor"></path></svg>
+          <span>Alternar conta</span>
+        </button>
+        <button type="button" class="yt-context-menu__item" data-menu-action="logout">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" fill="currentColor"></path></svg>
+          <span>Sair</span>
+        </button>
+        <div class="yt-context-menu__divider"></div>
+        <button type="button" class="yt-context-menu__item" data-menu-action="purchases">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6h-2c0-2.76-2.24-5-5-5S7 3.24 7 6H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7-3c1.66 0 3 1.34 3 3H9c0-1.66 1.34-3 3-3zm7 17H5V8h14v12z" fill="currentColor"></path></svg>
+          <span>Compras e assinaturas</span>
+        </button>
+        <button type="button" class="yt-context-menu__item" data-menu-action="settings-app">
+          ${icon("settings", 20)}
+          <span>Ajustes do aplicativo</span>
+        </button>
+      `;
+    } else {
+      contextHeader.hidden = true;
+      contextBody.innerHTML = `
+        <button type="button" class="yt-context-menu__item yt-context-menu__item--highlight" data-menu-action="login">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-4.43-.82-6.14-2.88C7.55 15.8 9.68 15 12 15s4.45.8 6.14 2.12C16.43 19.18 14.03 20 12 20z" fill="currentColor"></path></svg>
+          <span>Fazer login</span>
+        </button>
+        <div class="yt-context-menu__divider"></div>
+        <button type="button" class="yt-context-menu__item" data-menu-action="settings-app">
+          ${icon("settings", 20)}
+          <span>Ajustes do aplicativo</span>
+        </button>
+        <button type="button" class="yt-context-menu__item" data-menu-action="help">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 16h-2v-2h2v2zm1.07-7.75l-.9.92C12.45 11.9 12 12.5 12 14h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.65z" fill="currentColor"></path></svg>
+          <span>Ajuda e feedback</span>
+        </button>
+      `;
+    }
+
+    contextMenu.hidden = false;
+  };
+
+  contextBody.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const btn = target.closest<HTMLButtonElement>("[data-menu-action]");
+    if (!btn) return;
+
+    closeContextMenu();
+    const action = btn.dataset.menuAction;
+    switch (action) {
+      case "login":
+      case "switch-account":
+        actions.onNavigate("home");
+        void api.ytNavigate("url:https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com");
+        break;
+      case "logout":
+        actions.onNavigate("home");
+        void api.ytNavigate("url:https://www.youtube.com/logout");
+        break;
+      case "channel":
+        actions.onNavigate("home");
+        void api.ytNavigate("url:https://www.youtube.com/feed/library");
+        break;
+      case "studio":
+        actions.onNavigate("home");
+        void api.ytNavigate("url:https://studio.youtube.com");
+        break;
+      case "purchases":
+        actions.onNavigate("home");
+        void api.ytNavigate("url:https://www.youtube.com/paid_memberships");
+        break;
+      case "settings-app":
+        actions.onNavigate("settings");
+        break;
+      case "help":
+        actions.onNavigate("home");
+        void api.ytNavigate("url:https://support.google.com/youtube");
+        break;
+      default:
+        break;
+    }
   });
 
   document.addEventListener("click", (event) => {
@@ -362,6 +569,9 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
     }
     if (!searchContainer.contains(target)) {
       closeSuggestions();
+    }
+    if (!authContainer.contains(target)) {
+      closeContextMenu();
     }
   });
 
@@ -405,15 +615,11 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       case "reload":
       case "guide":
       case "voice":
-      case "avatar":
         await api.ytNavigate(action);
         break;
 
-      case "login":
-        actions.onNavigate("home");
-        await api.ytNavigate(
-          "url:https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com",
-        );
+      case "toggle-auth-menu":
+        toggleAuthMenu();
         break;
 
       case "minimize":
@@ -483,13 +689,16 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
   }
 
   function setAuth(auth: AuthSnapshot): void {
+    currentAuth = auth;
     if (auth.loggedIn && auth.avatarUrl) {
       avatarImg.src = auth.avatarUrl;
       avatarButton.hidden = false;
       loginButton.hidden = true;
+      moreButton.hidden = true;
     } else {
       avatarButton.hidden = true;
       loginButton.hidden = false;
+      moreButton.hidden = false;
     }
   }
 

@@ -350,6 +350,8 @@ pub fn yt_navigate(window: Window, action: String) -> AppResult<()> {
 pub struct AuthSnapshot {
     pub logged_in: bool,
     pub avatar_url: Option<String>,
+    pub display_name: Option<String>,
+    pub handle: Option<String>,
 }
 
 /// Receives authentication status from the observer and emits to UI.
@@ -412,4 +414,130 @@ pub fn set_masthead_integrated(window: Window, integrated: bool) -> AppResult<()
 
     webview.eval(script)?;
     Ok(())
+}
+
+/// Fetches search suggestions directly via WinINet without browser CORS restrictions.
+#[tauri::command]
+pub fn yt_suggest(query: String) -> AppResult<Vec<String>> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::c_void;
+        use std::os::windows::ffi::OsStrExt;
+
+        let encoded = urlencoding(trimmed);
+        let url = format!("https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={encoded}");
+        let url_wide: Vec<u16> = std::ffi::OsStr::new(&url)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let agent_wide: Vec<u16> = std::ffi::OsStr::new("Mozilla/5.0")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        #[link(name = "wininet")]
+        extern "system" {
+            fn InternetOpenW(
+                lpszAgent: *const u16,
+                dwAccessType: u32,
+                lpszProxy: *const u16,
+                lpszProxyBypass: *const u16,
+                dwFlags: u32,
+            ) -> *mut c_void;
+            fn InternetOpenUrlW(
+                hInternet: *mut c_void,
+                lpszUrl: *const u16,
+                lpszHeaders: *const u16,
+                dwHeadersLength: u32,
+                dwFlags: u32,
+                dwContext: usize,
+            ) -> *mut c_void;
+            fn InternetReadFile(
+                hFile: *mut c_void,
+                lpBuffer: *mut u8,
+                dwNumberOfBytesToRead: u32,
+                lpdwNumberOfBytesRead: *mut u32,
+            ) -> i32;
+            fn InternetCloseHandle(hInternet: *mut c_void) -> i32;
+        }
+
+        unsafe {
+            let h_internet = InternetOpenW(
+                agent_wide.as_ptr(),
+                1, /* INTERNET_OPEN_TYPE_DIRECT */
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+            );
+            if !h_internet.is_null() {
+                let h_url = InternetOpenUrlW(
+                    h_internet,
+                    url_wide.as_ptr(),
+                    std::ptr::null(),
+                    0,
+                    0x8000_0000, /* INTERNET_FLAG_RELOAD */
+                    0,
+                );
+                if !h_url.is_null() {
+                    let mut buffer = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    let mut bytes_read = 0u32;
+                    while InternetReadFile(
+                        h_url,
+                        chunk.as_mut_ptr(),
+                        chunk.len() as u32,
+                        &mut bytes_read,
+                    ) != 0
+                        && bytes_read > 0
+                    {
+                        buffer.extend_from_slice(&chunk[..bytes_read as usize]);
+                        if buffer.len() > 65536 {
+                            break;
+                        }
+                    }
+
+                    InternetCloseHandle(h_url);
+                    InternetCloseHandle(h_internet);
+
+                    if let Ok(text) = String::from_utf8(buffer) {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(arr) = val.get(1).and_then(|v| v.as_array()) {
+                                let suggestions = arr
+                                    .iter()
+                                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                                    .collect();
+                                return Ok(suggestions);
+                            }
+                        }
+                    }
+                } else {
+                    InternetCloseHandle(h_internet);
+                }
+            }
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn urlencoding(input: &str) -> String {
+    let mut encoded = String::new();
+    for byte in input.bytes() {
+        if byte.is_ascii_alphanumeric()
+            || byte == b'-'
+            || byte == b'_'
+            || byte == b'.'
+            || byte == b'~'
+        {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    encoded
 }

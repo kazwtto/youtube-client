@@ -46,6 +46,8 @@ export interface GeneralSettings {
 export interface AuthSnapshot {
   loggedIn: boolean;
   avatarUrl?: string | null;
+  displayName?: string | null;
+  handle?: string | null;
 }
 
 export interface WindowSettings {
@@ -185,25 +187,6 @@ export const api = {
   setMastheadIntegrated: (integrated: boolean): Promise<void> =>
     invoke<void>("set_masthead_integrated", { integrated }),
 
-  fetchSuggestions: async (query: string): Promise<string[]> => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      return [];
-    }
-    try {
-      const response = await fetch(
-        `https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(trimmed)}`,
-      );
-      if (!response.ok) {
-        return [];
-      }
-      const data = (await response.json()) as unknown;
-      if (Array.isArray(data) && Array.isArray(data[1])) {
-        return data[1] as string[];
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  },
+  fetchSuggestions: (query: string): Promise<string[]> =>
+    invoke<string[]>("yt_suggest", { query }),
 };

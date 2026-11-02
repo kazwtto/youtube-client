@@ -59,9 +59,20 @@
 
     let authState = null;
     if (avatarImg && avatarImg.src) {
-      authState = { loggedIn: true, avatarUrl: avatarImg.src };
+      const nameEl = document.querySelector(
+        "#channel-name, #account-name, ytd-multi-page-menu-renderer #account-name",
+      );
+      const handleEl = document.querySelector(
+        "#channel-handle, ytd-multi-page-menu-renderer #channel-handle",
+      );
+      authState = {
+        loggedIn: true,
+        avatarUrl: avatarImg.src,
+        displayName: nameEl ? (nameEl.textContent || "").trim() : null,
+        handle: handleEl ? (handleEl.textContent || "").trim() : null,
+      };
     } else if (loginLink) {
-      authState = { loggedIn: false, avatarUrl: null };
+      authState = { loggedIn: false, avatarUrl: null, displayName: null, handle: null };
     }
 
     if (!authState) {

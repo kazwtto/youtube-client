@@ -76,6 +76,7 @@ pub fn run() {
             commands::window::yt_navigate,
             commands::window::auth_snapshot,
             commands::window::set_masthead_integrated,
+            commands::window::yt_suggest,
             commands::window::yt_play_video,
             commands::window::pip_open,
             commands::window::pip_current,

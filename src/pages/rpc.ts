@@ -87,10 +87,6 @@ export async function renderRpc(host: HTMLElement): Promise<void> {
           </span>
         </label>
       </section>
-
-      <p class="rpc-saved" id="rpc-saved" role="status" aria-live="polite" hidden>
-        ${t("rpc.saved")}
-      </p>
     </section>
   `;
 

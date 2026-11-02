@@ -13,6 +13,7 @@ use crate::theme::service::ThemeService;
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 pub const PIP_WINDOW_LABEL: &str = "pip";
+pub const MENU_WINDOW_LABEL: &str = "menu";
 pub const UI_WEBVIEW_LABEL: &str = "ui";
 pub const YOUTUBE_WEBVIEW_LABEL: &str = "yt";
 
@@ -50,6 +51,9 @@ pub fn setup(
         .maximized(window_settings.maximized)
         .build()?;
 
+    let theme = current_theme(&window);
+    add_youtube(&window, webview_data_dir, theme.as_ref())?;
+
     let ui = WebviewBuilder::new(UI_WEBVIEW_LABEL, WebviewUrl::App("index.html".into()))
         .data_directory(webview_data_dir.join("ui"))
         .background_color(Color(0, 0, 0, 0));
@@ -59,13 +63,78 @@ pub fn setup(
         LogicalSize::new(INITIAL_WIDTH, INITIAL_HEIGHT),
     )?;
 
-    let theme = current_theme(&window);
-    add_youtube(&window, webview_data_dir, theme.as_ref())?;
-
     layout_webviews(&window)?;
     observe_window(&window);
+    setup_menu_window(app, webview_data_dir)?;
 
     Ok(window)
+}
+
+fn setup_menu_window(app: &mut App, webview_data_dir: &Path) -> AppResult<()> {
+    let builder = tauri::WebviewWindowBuilder::new(
+        app,
+        MENU_WINDOW_LABEL,
+        tauri::WebviewUrl::App("menu.html".into()),
+    )
+    .title("Menu")
+    .inner_size(308.0, 274.0)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .visible(false)
+    .shadow(false)
+    .background_color(Color(0, 0, 0, 0))
+    .data_directory(webview_data_dir.join("ui"));
+
+    let menu_window = builder.build()?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::c_void;
+
+        #[link(name = "dwmapi")]
+        extern "system" {
+            fn DwmSetWindowAttribute(
+                hwnd: *mut c_void,
+                dwAttribute: u32,
+                pvAttribute: *const c_void,
+                cbAttribute: u32,
+            ) -> i32;
+        }
+
+        if let Ok(hwnd) = menu_window.hwnd() {
+            unsafe {
+                // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_DONOTROUND = 1
+                let corner_pref: u32 = 1;
+                let _ = DwmSetWindowAttribute(
+                    hwnd.0 as *mut c_void,
+                    33,
+                    &corner_pref as *const _ as *const c_void,
+                    std::mem::size_of::<u32>() as u32,
+                );
+
+                // DWMWA_BORDER_COLOR = 34, DWMWA_COLOR_NONE = 0xFFFFFFFE
+                let border_color: u32 = 0xFFFFFFFE;
+                let _ = DwmSetWindowAttribute(
+                    hwnd.0 as *mut c_void,
+                    34,
+                    &border_color as *const _ as *const c_void,
+                    std::mem::size_of::<u32>() as u32,
+                );
+            }
+        }
+    }
+
+    let handle = menu_window.clone();
+    menu_window.on_window_event(move |event| {
+        if let WindowEvent::Focused(false) = event {
+            let _ = handle.hide();
+        }
+    });
+
+    Ok(())
 }
 
 /// Rebuilds the YouTube webview.
@@ -240,6 +309,10 @@ fn add_youtube(
                                 let _ = webview.show();
                             }
 
+                            if let Some(w) = app.get_window(MAIN_WINDOW_LABEL) {
+                                let _ = layout_webviews(&w);
+                            }
+
                             let _ = app.emit(crate::core::events::YOUTUBE_LOADING, false);
                         }
                     }
@@ -291,16 +364,33 @@ fn youtube_bounds(window: &Window) -> AppResult<(LogicalPosition<f64>, LogicalSi
     ))
 }
 
-/// Repositions the webviews according to the current window size.
-fn layout_webviews(window: &Window) -> AppResult<()> {
+/// Repositions the webviews according to the current window size and elevation state.
+pub fn layout_webviews(window: &Window) -> AppResult<()> {
     let scale = window.scale_factor()?.max(0.0001);
     let size = window.inner_size()?;
     let width = size.width as f64 / scale;
     let height = size.height as f64 / scale;
 
+    let (youtube_visible, youtube_loading, ui_elevated) = window
+        .app_handle()
+        .try_state::<crate::core::state::AppState>()
+        .map(|s| {
+            (
+                s.youtube_visible.load(std::sync::atomic::Ordering::SeqCst),
+                s.youtube_loading.load(std::sync::atomic::Ordering::SeqCst),
+                s.ui_elevated.load(std::sync::atomic::Ordering::SeqCst),
+            )
+        })
+        .unwrap_or((true, false, false));
+
     if let Some(ui) = window.get_webview(UI_WEBVIEW_LABEL) {
         ui.set_position(LogicalPosition::new(0.0, 0.0))?;
-        ui.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)))?;
+        let ui_height = if !youtube_visible || youtube_loading || ui_elevated {
+            height.max(0.0)
+        } else {
+            TITLEBAR_HEIGHT
+        };
+        ui.set_size(LogicalSize::new(width.max(0.0), ui_height))?;
     }
 
     if let Some(youtube) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {

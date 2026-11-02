@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import type { RouteId } from "../app/router";
@@ -205,17 +206,6 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       >
         <img class="titlebar__avatar-img" alt="${t("titlebar.account")}" src="" />
       </button>
-
-      <div class="yt-context-menu" hidden>
-        <div class="yt-context-menu__header" hidden>
-          <img class="yt-context-menu__header-avatar" src="" alt="Avatar" />
-          <div class="yt-context-menu__header-info">
-            <span class="yt-context-menu__header-name"></span>
-            <span class="yt-context-menu__header-handle"></span>
-          </div>
-        </div>
-        <div class="yt-context-menu__body"></div>
-      </div>
     </div>
 
     <div class="titlebar__group titlebar__controls" role="group" aria-label="${t("titlebar.windowControls")}">
@@ -240,27 +230,26 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
   const moreButton = bar.querySelector<HTMLButtonElement>('.titlebar__button--more')!;
   const avatarButton = bar.querySelector<HTMLButtonElement>('.titlebar__avatar-button')!;
   const avatarImg = bar.querySelector<HTMLImageElement>(".titlebar__avatar-img")!;
-  const contextMenu = bar.querySelector<HTMLElement>(".yt-context-menu")!;
-  const contextHeader = contextMenu.querySelector<HTMLElement>(".yt-context-menu__header")!;
-  const contextHeaderAvatar = contextMenu.querySelector<HTMLImageElement>(".yt-context-menu__header-avatar")!;
-  const contextHeaderName = contextMenu.querySelector<HTMLElement>(".yt-context-menu__header-name")!;
-  const contextHeaderHandle = contextMenu.querySelector<HTMLElement>(".yt-context-menu__header-handle")!;
-  const contextBody = contextMenu.querySelector<HTMLElement>(".yt-context-menu__body")!;
-
   let currentAuth: AuthSnapshot = { loggedIn: false };
   let currentItems: { text: string; isHistory: boolean }[] = [];
   let selectedIndex = -1;
   let suggestTimer: number | undefined;
+
+  const updateElevation = (): void => {
+    const isElevated = !suggestionsBox.hidden;
+    void api.setUiElevation(isElevated).catch(() => undefined);
+  };
 
   const closeSuggestions = (): void => {
     suggestionsBox.hidden = true;
     suggestionsBox.replaceChildren();
     currentItems = [];
     selectedIndex = -1;
+    updateElevation();
   };
 
   const closeContextMenu = (): void => {
-    contextMenu.hidden = true;
+    void api.hideContextMenu().catch(() => undefined);
   };
 
   const submitSearch = (query: string): void => {
@@ -307,6 +296,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       .join("");
 
     suggestionsBox.hidden = false;
+    updateElevation();
   };
 
   const updateSearchDropdown = async (): Promise<void> => {
@@ -442,92 +432,54 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
     submitSearch(searchInput.value);
   });
 
-  const toggleAuthMenu = (): void => {
-    if (!contextMenu.hidden) {
-      closeContextMenu();
+  let lastMenuCloseTime = 0;
+
+  void listen("menu://closed", () => {
+    lastMenuCloseTime = Date.now();
+  });
+
+  const toggleAuthMenu = async (): Promise<void> => {
+    if (Date.now() - lastMenuCloseTime < 220) {
       return;
     }
 
-    if (currentAuth.loggedIn) {
-      contextHeader.hidden = false;
-      contextHeaderAvatar.src = currentAuth.avatarUrl || "";
-      contextHeaderName.textContent = currentAuth.displayName || "YouTube";
-      contextHeaderHandle.textContent = currentAuth.handle || "";
-
-      contextBody.innerHTML = `
-        <button type="button" class="yt-context-menu__item" data-menu-action="channel">
-          ${ytIcon("account", 20)}
-          <span>Seu canal</span>
-        </button>
-        <button type="button" class="yt-context-menu__item" data-menu-action="studio">
-          ${ytIcon("studio", 20)}
-          <span>YouTube Studio</span>
-        </button>
-        <button type="button" class="yt-context-menu__item" data-menu-action="switch-account">
-          ${ytIcon("switch-account", 20)}
-          <span>Alternar conta</span>
-        </button>
-        <button type="button" class="yt-context-menu__item" data-menu-action="logout">
-          ${ytIcon("logout", 20)}
-          <span>Sair</span>
-        </button>
-        <div class="yt-context-menu__divider"></div>
-        <button type="button" class="yt-context-menu__item" data-menu-action="purchases">
-          ${ytIcon("purchases", 20)}
-          <span>Compras e assinaturas</span>
-        </button>
-        <button type="button" class="yt-context-menu__item" data-menu-action="your-data">
-          ${ytIcon("your-data", 20)}
-          <span>Seus dados no YouTube</span>
-        </button>
-        <div class="yt-context-menu__divider"></div>
-        <button type="button" class="yt-context-menu__item" data-menu-action="shortcuts">
-          ${ytIcon("shortcuts", 20)}
-          <span>Teclas de atalho</span>
-        </button>
-        <button type="button" class="yt-context-menu__item" data-menu-action="settings-app">
-          ${icon("settings", 20)}
-          <span>Ajustes do aplicativo</span>
-        </button>
-      `;
-    } else {
-      contextHeader.hidden = true;
-      contextBody.innerHTML = `
-        <button type="button" class="yt-context-menu__item yt-context-menu__item--highlight" data-menu-action="login">
-          ${ytIcon("account", 20)}
-          <span>Fazer login</span>
-        </button>
-        <button type="button" class="yt-context-menu__item" data-menu-action="your-data">
-          ${ytIcon("your-data", 20)}
-          <span>Seus dados no YouTube</span>
-        </button>
-        <div class="yt-context-menu__divider"></div>
-        <button type="button" class="yt-context-menu__item" data-menu-action="shortcuts">
-          ${ytIcon("shortcuts", 20)}
-          <span>Teclas de atalho</span>
-        </button>
-        <button type="button" class="yt-context-menu__item" data-menu-action="settings-app">
-          ${icon("settings", 20)}
-          <span>Ajustes do aplicativo</span>
-        </button>
-        <button type="button" class="yt-context-menu__item" data-menu-action="help">
-          ${ytIcon("help", 20)}
-          <span>Ajuda e feedback</span>
-        </button>
-      `;
+    const isVisible = await api.isContextMenuVisible();
+    if (isVisible) {
+      await api.hideContextMenu();
+      return;
     }
 
-    contextMenu.hidden = false;
+    const rect = authContainer.getBoundingClientRect();
+    const outerPos = await appWindow.outerPosition();
+    const scale = await appWindow.scaleFactor();
+
+    const isLogged = currentAuth.loggedIn;
+    const menuWidth = 260;
+    const menuHeight = isLogged ? 430 : 230;
+
+    const PAD_X = 24;
+    const PAD_TOP = 8;
+    const PAD_BOTTOM = 36;
+
+    const windowWidth = menuWidth + (PAD_X * 2);
+    const windowHeight = menuHeight + PAD_TOP + PAD_BOTTOM;
+
+    const screenRight = (outerPos.x / scale) + rect.right;
+    const screenBottom = (outerPos.y / scale) + rect.bottom;
+
+    const targetX = Math.round(screenRight - menuWidth - PAD_X);
+    const targetY = Math.round(screenBottom + 6 - PAD_TOP);
+
+    await api.showContextMenu({
+      x: targetX,
+      y: targetY,
+      width: windowWidth,
+      height: windowHeight,
+      auth: currentAuth,
+    });
   };
 
-  contextBody.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const btn = target.closest<HTMLButtonElement>("[data-menu-action]");
-    if (!btn) return;
-
-    closeContextMenu();
-    const action = btn.dataset.menuAction;
+  const handleContextMenuAction = (action: string): void => {
     switch (action) {
       case "login":
       case "switch-account":
@@ -568,6 +520,13 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       default:
         break;
     }
+  };
+
+  void listen<{ action: string }>("menu-action", (event) => {
+    const action = event.payload?.action;
+    if (action) {
+      handleContextMenuAction(action);
+    }
   });
 
   document.addEventListener("click", (event) => {
@@ -580,6 +539,15 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
     }
     if (!authContainer.contains(target)) {
       closeContextMenu();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeContextMenu();
+      if (!suggestionsBox.hidden) {
+        closeSuggestions();
+      }
     }
   });
 

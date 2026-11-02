@@ -187,6 +187,21 @@ export const api = {
   setMastheadIntegrated: (integrated: boolean): Promise<void> =>
     invoke<void>("set_masthead_integrated", { integrated }),
 
+  setUiElevation: (elevated: boolean): Promise<void> =>
+    invoke<void>("set_ui_elevation", { elevated }),
+
   fetchSuggestions: (query: string): Promise<string[]> =>
     invoke<string[]>("yt_suggest", { query }),
+
+  showContextMenu: (args: {
+    x: number;
+    y: number;
+    width?: number;
+    height?: number;
+    auth: AuthSnapshot;
+  }): Promise<void> => invoke<void>("show_context_menu", { args }),
+
+  hideContextMenu: (): Promise<void> => invoke<void>("hide_context_menu"),
+
+  isContextMenuVisible: (): Promise<boolean> => invoke<boolean>("is_context_menu_visible"),
 };

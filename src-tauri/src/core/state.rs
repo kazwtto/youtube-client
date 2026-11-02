@@ -26,6 +26,8 @@ pub struct AppState {
     /// Whether the YouTube page is still loading. The webview stays hidden
     /// until it is ready, so the launcher can show a loading state.
     pub youtube_loading: AtomicBool,
+    /// Whether the UI webview is elevated to full height to display dropdowns or menus.
+    pub ui_elevated: AtomicBool,
     /// Last state reported by the YouTube player, used by picture-in-picture.
     pub last_player: Mutex<Option<PlayerSnapshot>>,
 }
@@ -48,6 +50,7 @@ impl AppState {
             watch: Mutex::new(WatchTracker::default()),
             youtube_visible: AtomicBool::new(true),
             youtube_loading: AtomicBool::new(true),
+            ui_elevated: AtomicBool::new(false),
             last_player: Mutex::new(None),
         })
     }

@@ -143,37 +143,41 @@ function applySvgAttributes(
   options?: { size?: number; className?: string; style?: string },
 ): string {
   let svg = rawSvg.trim();
+  const svgTagMatch = svg.match(/^<svg\b([^>]*)>/i);
+  if (!svgTagMatch) return svg;
+
+  let attrs = svgTagMatch[1];
 
   if (options?.className) {
-    if (/class="[^"]*"/.test(svg)) {
-      svg = svg.replace(/class="[^"]*"/, `class="${options.className}"`);
+    if (/(^|\s)class="[^"]*"/.test(attrs)) {
+      attrs = attrs.replace(/(^|\s)class="[^"]*"/, `$1class="${options.className}"`);
     } else {
-      svg = svg.replace("<svg", `<svg class="${options.className}"`);
+      attrs = ` class="${options.className}"${attrs}`;
     }
   }
 
   if (options?.size !== undefined) {
-    if (/width="[^"]*"/.test(svg)) {
-      svg = svg.replace(/width="[^"]*"/, `width="${options.size}"`);
+    if (/(^|\s)width="[^"]*"/.test(attrs)) {
+      attrs = attrs.replace(/(^|\s)width="[^"]*"/, `$1width="${options.size}"`);
     } else {
-      svg = svg.replace("<svg", `<svg width="${options.size}"`);
+      attrs = ` width="${options.size}"${attrs}`;
     }
-    if (/height="[^"]*"/.test(svg)) {
-      svg = svg.replace(/height="[^"]*"/, `height="${options.size}"`);
+    if (/(^|\s)height="[^"]*"/.test(attrs)) {
+      attrs = attrs.replace(/(^|\s)height="[^"]*"/, `$1height="${options.size}"`);
     } else {
-      svg = svg.replace("<svg", `<svg height="${options.size}"`);
+      attrs = ` height="${options.size}"${attrs}`;
     }
   }
 
   if (options?.style) {
-    if (/style="[^"]*"/.test(svg)) {
-      svg = svg.replace(/style="[^"]*"/, `style="${options.style}"`);
+    if (/(^|\s)style="[^"]*"/.test(attrs)) {
+      attrs = attrs.replace(/(^|\s)style="[^"]*"/, `$1style="${options.style}"`);
     } else {
-      svg = svg.replace("<svg", `<svg style="${options.style}"`);
+      attrs = ` style="${options.style}"${attrs}`;
     }
   }
 
-  return svg;
+  return `<svg${attrs}>${svg.slice(svgTagMatch[0].length)}`;
 }
 
 /// Dedicated component helper for launcher vector icons.

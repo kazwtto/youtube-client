@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Permissions for the app's local interface.",
-  "windows": ["main"],
+  "windows": ["main", "menu"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",
@@ -14,6 +14,9 @@
     "allow-set-webview-visible",
     "allow-yt-navigate",
     "allow-yt-play-video",
+    "allow-show-context-menu",
+    "allow-hide-context-menu",
+    "allow-is-context-menu-visible",
     "allow-pip-open",
     "allow-pip-close",
     "allow-pip-next",

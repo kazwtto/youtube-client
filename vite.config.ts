@@ -27,6 +27,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         pip: resolve(__dirname, "pip.html"),
+        menu: resolve(__dirname, "menu.html"),
       },
     },
   },

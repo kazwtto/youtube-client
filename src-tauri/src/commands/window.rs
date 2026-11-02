@@ -61,6 +61,8 @@ pub fn set_webview_visible(
         webview.hide()?;
     }
 
+    let _ = crate::window::layout::layout_webviews(&window);
+
     Ok(())
 }
 
@@ -396,6 +398,50 @@ pub fn auth_snapshot(window: Window, auth: AuthSnapshot) -> AppResult<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowContextMenuArgs {
+    pub x: f64,
+    pub y: f64,
+    pub width: Option<f64>,
+    pub height: Option<f64>,
+    pub auth: AuthSnapshot,
+}
+
+/// Positions and displays the native popover context menu window.
+#[tauri::command]
+pub fn show_context_menu(app: tauri::AppHandle, args: ShowContextMenuArgs) -> AppResult<()> {
+    if let Some(menu) = app.get_webview_window(crate::window::layout::MENU_WINDOW_LABEL) {
+        if let (Some(w), Some(h)) = (args.width, args.height) {
+            let _ = menu.set_size(tauri::LogicalSize::new(w, h));
+        }
+        let _ = app.emit("menu://data", &args.auth);
+        let _ = menu.set_position(tauri::LogicalPosition::new(args.x, args.y));
+        let _ = menu.show();
+        let _ = menu.set_focus();
+    }
+    Ok(())
+}
+
+/// Hides the native popover context menu window.
+#[tauri::command]
+pub fn hide_context_menu(app: tauri::AppHandle) -> AppResult<()> {
+    if let Some(menu) = app.get_webview_window(crate::window::layout::MENU_WINDOW_LABEL) {
+        let _ = menu.hide();
+        let _ = app.emit("menu://closed", ());
+    }
+    Ok(())
+}
+
+/// Checks whether the native context menu window is currently visible.
+#[tauri::command]
+pub fn is_context_menu_visible(app: tauri::AppHandle) -> AppResult<bool> {
+    if let Some(menu) = app.get_webview_window(crate::window::layout::MENU_WINDOW_LABEL) {
+        return Ok(menu.is_visible().unwrap_or(false));
+    }
+    Ok(false)
+}
+
 /// Injects or removes the CSS that hides the masthead and collapses its height.
 #[tauri::command]
 pub fn set_masthead_integrated(window: Window, integrated: bool) -> AppResult<()> {
@@ -448,6 +494,19 @@ pub fn set_masthead_integrated(window: Window, integrated: bool) -> AppResult<()
     };
 
     webview.eval(script)?;
+    Ok(())
+}
+
+/// Adjusts the bounds of the UI webview so that dropdown menus and suggestions
+/// rendered by the UI webview appear over the YouTube webview when open.
+#[tauri::command]
+pub fn set_ui_elevation(
+    window: Window,
+    state: State<'_, AppState>,
+    elevated: bool,
+) -> AppResult<()> {
+    state.ui_elevated.store(elevated, Ordering::SeqCst);
+    crate::window::layout::layout_webviews(&window)?;
     Ok(())
 }
 

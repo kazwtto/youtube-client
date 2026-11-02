@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 
-use tauri::{Manager, State, Window};
+use tauri::{Emitter, Manager, State, Window};
 
 use crate::core::error::{AppError, AppResult};
 use crate::core::state::AppState;
@@ -316,15 +316,98 @@ pub fn yt_navigate(window: Window, action: String) -> AppResult<()> {
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
 
     let script = match action.as_str() {
-        "back" => "history.back()",
-        "forward" => "history.forward()",
-        "home" => "location.href = 'https://www.youtube.com'",
-        "reload" => "location.reload()",
+        "back" => "history.back()".to_string(),
+        "forward" => "history.forward()".to_string(),
+        "home" => "location.href = 'https://www.youtube.com'".to_string(),
+        "reload" => "location.reload()".to_string(),
+        "guide" => "(function(){ const b = document.querySelector('#guide-button #button, ytd-masthead #guide-button button, #guide-button button'); if (b) b.click(); })()".to_string(),
+        "avatar" => "(function(){ const b = document.querySelector('#avatar-btn, ytd-topbar-menu-button-renderer #avatar-btn, button#avatar-btn'); if (b) b.click(); })()".to_string(),
+        "voice" => "(function(){ const b = document.querySelector('#voice-search-button button, yt-icon-button#voice-search-button button, #voice-search-button'); if (b) b.click(); })()".to_string(),
+        act if act.starts_with("search:") => {
+            let query = &act[7..];
+            format!("location.href = 'https://www.youtube.com/results?search_query={query}'")
+        }
+        act if act.starts_with("url:") => {
+            let target = &act[4..];
+            format!("location.href = '{}'", target.replace('\'', "\\'"))
+        }
+        act if act.starts_with("eval:") => {
+            act[5..].to_string()
+        }
         other => {
             return Err(AppError::Validation(format!(
                 "unknown navigation action: {other}"
             )))
         }
+    };
+
+    webview.eval(&script)?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthSnapshot {
+    pub logged_in: bool,
+    pub avatar_url: Option<String>,
+}
+
+/// Receives authentication status from the observer and emits to UI.
+#[tauri::command]
+pub fn auth_snapshot(window: Window, auth: AuthSnapshot) -> AppResult<()> {
+    let _ = window.app_handle().emit(crate::core::events::AUTH_UPDATE, &auth);
+    Ok(())
+}
+
+/// Injects or removes the CSS that hides the masthead and collapses its height.
+#[tauri::command]
+pub fn set_masthead_integrated(window: Window, integrated: bool) -> AppResult<()> {
+    let webview = window
+        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+        .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
+
+    let script = if integrated {
+        r#"
+        (function() {
+          let style = document.getElementById('ytdesktop-masthead-hide');
+          if (!style) {
+            style = document.createElement('style');
+            style.id = 'ytdesktop-masthead-hide';
+            style.textContent = `
+              #masthead-container, ytd-masthead, #ticker.ytd-masthead, #interstitial.ytd-masthead {
+                display: none !important;
+                height: 0 !important;
+                min-height: 0 !important;
+                max-height: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                pointer-events: none !important;
+                visibility: hidden !important;
+              }
+              :root, html, body, ytd-app {
+                --ytd-masthead-height: 0px !important;
+                --ytd-toolbar-offset: 0px !important;
+              }
+              ytd-page-manager#page-manager {
+                margin-top: 0px !important;
+                padding-top: 0px !important;
+              }
+              #guide.ytd-app, ytd-mini-guide-renderer.ytd-app, #contentContainer.tp-yt-app-drawer {
+                top: 0px !important;
+                padding-top: 0px !important;
+              }
+            `;
+            (document.head || document.documentElement).appendChild(style);
+          }
+        })()
+        "#
+    } else {
+        r#"
+        (function() {
+          const style = document.getElementById('ytdesktop-masthead-hide');
+          if (style) style.remove();
+        })()
+        "#
     };
 
     webview.eval(script)?;

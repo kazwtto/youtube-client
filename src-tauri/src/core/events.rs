@@ -6,3 +6,4 @@ pub const EXTENSIONS_CHANGED: &str = "extensions://changed";
 pub const RPC_STATUS: &str = "rpc://status";
 pub const PLAYER_UPDATE: &str = "player://update";
 pub const YOUTUBE_LOADING: &str = "youtube://loading";
+pub const AUTH_UPDATE: &str = "youtube://auth";

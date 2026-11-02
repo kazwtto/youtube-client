@@ -121,6 +121,8 @@ pub struct GeneralSettings {
     pub pip_on_minimize: bool,
     /// Opens the mini player when the window loses focus.
     pub pip_on_blur: bool,
+    /// Hides YouTube's masthead and integrates guide, search, and auth into the titlebar.
+    pub integrate_masthead: bool,
 }
 
 impl Default for GeneralSettings {
@@ -131,6 +133,7 @@ impl Default for GeneralSettings {
             titlebar_style: TitlebarStyle::Tabs,
             pip_on_minimize: true,
             pip_on_blur: false,
+            integrate_masthead: true,
         }
     }
 }

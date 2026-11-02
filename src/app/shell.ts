@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import { createTitlebar } from "../components/titlebar";
 import { t } from "../i18n";
-import { api, type AppSettings, type RpcStatus } from "../lib/api";
+import { api, type AppSettings, type AuthSnapshot, type RpcStatus } from "../lib/api";
 import { renderExtensions } from "../pages/extensions";
 import { renderHistory } from "../pages/history";
 import { renderHome } from "../pages/home";
@@ -103,11 +103,19 @@ export function createShell(root: HTMLElement): void {
 
   void api
     .settingsGet()
-    .then((settings: AppSettings) => titlebar.setStyle(settings.general.titlebarStyle))
+    .then((settings: AppSettings) => {
+      titlebar.setStyle(settings.general.titlebarStyle);
+      titlebar.setMastheadIntegrated(settings.general.integrateMasthead);
+    })
     .catch(() => undefined);
 
   void listen<AppSettings>("settings://changed", (event) => {
     titlebar.setStyle(event.payload.general.titlebarStyle);
+    titlebar.setMastheadIntegrated(event.payload.general.integrateMasthead);
+  }).catch(() => undefined);
+
+  void listen<AuthSnapshot>("youtube://auth", (event) => {
+    titlebar.setAuth(event.payload);
   }).catch(() => undefined);
 
   void listen<boolean>("youtube://loading", (event) => {

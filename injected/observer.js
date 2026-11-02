@@ -37,6 +37,7 @@
   };
 
   let lastSignature = "";
+  let lastAuthSignature = "";
   let intervalId = null;
 
   function canInvoke() {
@@ -44,6 +45,36 @@
       window.__TAURI_INTERNALS__ &&
         typeof window.__TAURI_INTERNALS__.invoke === "function",
     );
+  }
+
+  function reportAuth() {
+    if (!canInvoke()) {
+      return;
+    }
+
+    const avatarImg = document.querySelector(
+      "#avatar-btn img, ytd-topbar-menu-button-renderer #avatar img, button#avatar-btn img, ytd-masthead #avatar-btn img",
+    );
+    const loginLink = document.querySelector("#buttons a[href*='ServiceLogin']");
+
+    let authState = null;
+    if (avatarImg && avatarImg.src) {
+      authState = { loggedIn: true, avatarUrl: avatarImg.src };
+    } else if (loginLink) {
+      authState = { loggedIn: false, avatarUrl: null };
+    }
+
+    if (!authState) {
+      return;
+    }
+
+    const sig = JSON.stringify(authState);
+    if (sig === lastAuthSignature) {
+      return;
+    }
+
+    lastAuthSignature = sig;
+    window.__TAURI_INTERNALS__.invoke("auth_snapshot", { auth: authState }).catch(() => {});
   }
 
   function send(snapshot) {
@@ -185,13 +216,19 @@
       window.clearInterval(intervalId);
     }
 
-    intervalId = window.setInterval(report, 2000);
+    intervalId = window.setInterval(() => {
+      report();
+      reportAuth();
+    }, 2000);
     report();
+    reportAuth();
   }
 
   window.addEventListener("yt-navigate-finish", () => {
     lastSignature = "";
+    lastAuthSignature = "";
     report();
+    reportAuth();
   });
 
   window.addEventListener("beforeunload", () => {

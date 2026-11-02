@@ -40,6 +40,12 @@ export interface GeneralSettings {
   titlebarStyle: TitlebarStyle;
   pipOnMinimize: boolean;
   pipOnBlur: boolean;
+  integrateMasthead: boolean;
+}
+
+export interface AuthSnapshot {
+  loggedIn: boolean;
+  avatarUrl?: string | null;
 }
 
 export interface WindowSettings {
@@ -118,7 +124,17 @@ export interface RpcStatus {
   detail: string | null;
 }
 
-export type NavigationAction = "back" | "forward" | "home" | "reload";
+export type NavigationAction =
+  | "back"
+  | "forward"
+  | "home"
+  | "reload"
+  | "guide"
+  | "avatar"
+  | "voice"
+  | `search:${string}`
+  | `url:${string}`
+  | `eval:${string}`;
 
 export const api = {
   appVersion: (): Promise<string> => invoke<string>("app_version"),
@@ -165,4 +181,29 @@ export const api = {
   historyClear: (): Promise<void> => invoke<void>("history_clear"),
 
   historyDelete: (id: string): Promise<void> => invoke<void>("history_delete", { id }),
+
+  setMastheadIntegrated: (integrated: boolean): Promise<void> =>
+    invoke<void>("set_masthead_integrated", { integrated }),
+
+  fetchSuggestions: async (query: string): Promise<string[]> => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return [];
+    }
+    try {
+      const response = await fetch(
+        `https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(trimmed)}`,
+      );
+      if (!response.ok) {
+        return [];
+      }
+      const data = (await response.json()) as unknown;
+      if (Array.isArray(data) && Array.isArray(data[1])) {
+        return data[1] as string[];
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  },
 };

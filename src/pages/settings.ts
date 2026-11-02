@@ -138,6 +138,17 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
                 </select>
               </span>
             </label>
+
+            <label class="yt-setting">
+              <span class="yt-setting__text">
+                <span class="yt-setting__label">${t("settings.integrateMasthead")}</span>
+                <span class="yt-setting__hint">${t("settings.integrateMastheadHint")}</span>
+              </span>
+              <span class="yt-switch">
+                <input type="checkbox" role="switch" name="integrateMasthead" />
+                <span class="yt-switch__track" aria-hidden="true"></span>
+              </span>
+            </label>
           </section>
 
           <section class="yt-section" id="settings-pip" data-tab-panel="pip" hidden>
@@ -258,6 +269,7 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
   const radiusOutput = form.querySelector<HTMLOutputElement>('[name="radiusValue"]')!;
   const motionInput = form.querySelector<HTMLInputElement>('[name="motion"]')!;
   const titlebarStyleSelect = form.querySelector<HTMLSelectElement>('[name="titlebarStyle"]')!;
+  const integrateMasthead = form.querySelector<HTMLInputElement>('[name="integrateMasthead"]')!;
   const pipEnabled = form.querySelector<HTMLInputElement>('[name="pipEnabled"]')!;
   const pipModeSelect = form.querySelector<HTMLSelectElement>('[name="pipMode"]')!;
   const pipOnMinimize = form.querySelector<HTMLInputElement>('[name="pipOnMinimize"]')!;
@@ -289,6 +301,7 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
     radiusOutput.value = String(value.theme.radius);
     motionInput.checked = value.theme.motion;
     titlebarStyleSelect.value = value.general.titlebarStyle;
+    integrateMasthead.checked = value.general.integrateMasthead;
     pipEnabled.checked = value.pip.enabled;
     pipModeSelect.value = value.pip.mode;
     pipOnMinimize.checked = value.general.pipOnMinimize;
@@ -350,6 +363,7 @@ export async function renderSettings(host: HTMLElement): Promise<void> {
       language: normalizeLanguage(languageSelect.value),
       hardwareAcceleration: hardwareAcceleration.checked,
       titlebarStyle: titlebarStyleSelect.value as TitlebarStyle,
+      integrateMasthead: integrateMasthead.checked,
       pipOnMinimize: pipOnMinimize.checked,
       pipOnBlur: pipOnBlur.checked,
     },

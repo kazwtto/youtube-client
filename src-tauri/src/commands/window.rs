@@ -320,7 +320,24 @@ pub fn yt_navigate(window: Window, action: String) -> AppResult<()> {
         "forward" => "history.forward()".to_string(),
         "home" => "location.href = 'https://www.youtube.com'".to_string(),
         "reload" => "location.reload()".to_string(),
-        "guide" => "(function(){ const b = document.querySelector('#guide-button #button, ytd-masthead #guide-button button, #guide-button button'); if (b) b.click(); })()".to_string(),
+        "guide" => r#"
+        (function() {
+          const guideBtn = document.querySelector('yt-icon-button#guide-button button, #guide-button #button, #guide-button button, yt-icon-button#guide-button');
+          if (guideBtn) {
+            guideBtn.click();
+            return;
+          }
+          const app = document.querySelector('ytd-app');
+          if (app && typeof app.fire === 'function') {
+            app.fire('yt-action', { actionName: 'yt-toggle-guide-action' });
+            return;
+          }
+          const drawer = document.querySelector('tp-yt-app-drawer');
+          if (drawer && typeof drawer.toggle === 'function') {
+            drawer.toggle();
+          }
+        })()
+        "#.to_string(),
         "avatar" => "(function(){ const b = document.querySelector('#avatar-btn, ytd-topbar-menu-button-renderer #avatar-btn, button#avatar-btn'); if (b) b.click(); })()".to_string(),
         "voice" => "(function(){ const b = document.querySelector('#voice-search-button button, yt-icon-button#voice-search-button button, #voice-search-button'); if (b) b.click(); })()".to_string(),
         act if act.starts_with("search:") => {

@@ -546,10 +546,49 @@
    * 6. Bootstrap
    * ---------------------------------------------------------------------- */
 
+  function applyMastheadIntegration() {
+    if (window.__ytdesktopInitialMastheadIntegrated) {
+      let style = document.getElementById("ytdesktop-masthead-hide");
+      if (!style) {
+        style = document.createElement("style");
+        style.id = "ytdesktop-masthead-hide";
+        style.textContent = `
+          #masthead-container, ytd-masthead, #ticker.ytd-masthead, #interstitial.ytd-masthead {
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            pointer-events: none !important;
+            visibility: hidden !important;
+          }
+          :root, html, body, ytd-app {
+            --ytd-masthead-height: 0px !important;
+            --ytd-toolbar-offset: 0px !important;
+          }
+          ytd-page-manager#page-manager {
+            margin-top: 0px !important;
+            padding-top: 0px !important;
+          }
+          #guide.ytd-app, ytd-mini-guide-renderer.ytd-app, #contentContainer.tp-yt-app-drawer {
+            top: 0px !important;
+            padding-top: 0px !important;
+          }
+        `;
+        const parent = document.head || document.documentElement;
+        if (parent) {
+          parent.appendChild(style);
+        }
+      }
+    }
+  }
+
   // The backend embeds the resolved theme in this script, and initialization
   // scripts run before the page is parsed. Apply it synchronously so YouTube's
   // first paint is already themed instead of flashing its default surface.
   (function applyInitialTheme() {
+    applyMastheadIntegration();
     const initial = window.__ytdesktopInitialTheme;
     if (!initial) {
       return;
@@ -561,6 +600,7 @@
       document.addEventListener(
         "readystatechange",
         function () {
+          applyMastheadIntegration();
           if (document.documentElement) {
             apply(initial);
           }

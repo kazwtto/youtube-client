@@ -129,11 +129,25 @@ fn add_youtube(
     // runs before the page is parsed, so the transparent/themed stylesheet is
     // already in place on the very first paint. Runtime updates still arrive
     // through `apply_to_youtube`.
+    let masthead_integrated = window
+        .app_handle()
+        .try_state::<crate::core::state::AppState>()
+        .map(|state| {
+            state
+                .settings
+                .read()
+                .map(|store| store.snapshot().general.integrate_masthead)
+                .unwrap_or(true)
+        })
+        .unwrap_or(true);
+
     let initial = theme
         .and_then(|theme| serde_json::to_string(theme).ok())
         .map(|json| format!("window.__ytdesktopInitialTheme = {json};\n"))
         .unwrap_or_default();
-    let script = format!("{initial}{}", include_str!("../../../injected/theme.js"));
+    let initial_masthead =
+        format!("window.__ytdesktopInitialMastheadIntegrated = {masthead_integrated};\n");
+    let script = format!("{initial}{initial_masthead}{}", include_str!("../../../injected/theme.js"));
 
     let make = |with_extensions: bool| {
         let mut builder =

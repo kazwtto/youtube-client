@@ -493,6 +493,15 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
           <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6h-2c0-2.76-2.24-5-5-5S7 3.24 7 6H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7-3c1.66 0 3 1.34 3 3H9c0-1.66 1.34-3 3-3zm7 17H5V8h14v12z" fill="currentColor"></path></svg>
           <span>Compras e assinaturas</span>
         </button>
+        <button type="button" class="yt-context-menu__item" data-menu-action="your-data">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"></path></svg>
+          <span>Seus dados no YouTube</span>
+        </button>
+        <div class="yt-context-menu__divider"></div>
+        <button type="button" class="yt-context-menu__item" data-menu-action="shortcuts">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z" fill="currentColor"></path></svg>
+          <span>Teclas de atalho</span>
+        </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="settings-app">
           ${icon("settings", 20)}
           <span>Ajustes do aplicativo</span>
@@ -505,7 +514,15 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
           <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 4c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm0 14c-2.03 0-4.43-.82-6.14-2.88C7.55 15.8 9.68 15 12 15s4.45.8 6.14 2.12C16.43 19.18 14.03 20 12 20z" fill="currentColor"></path></svg>
           <span>Fazer login</span>
         </button>
+        <button type="button" class="yt-context-menu__item" data-menu-action="your-data">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"></path></svg>
+          <span>Seus dados no YouTube</span>
+        </button>
         <div class="yt-context-menu__divider"></div>
+        <button type="button" class="yt-context-menu__item" data-menu-action="shortcuts">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z" fill="currentColor"></path></svg>
+          <span>Teclas de atalho</span>
+        </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="settings-app">
           ${icon("settings", 20)}
           <span>Ajustes do aplicativo</span>
@@ -549,6 +566,14 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       case "purchases":
         actions.onNavigate("home");
         void api.ytNavigate("url:https://www.youtube.com/paid_memberships");
+        break;
+      case "your-data":
+        actions.onNavigate("home");
+        void api.ytNavigate("url:https://myaccount.google.com/yourdata/youtube");
+        break;
+      case "shortcuts":
+        actions.onNavigate("home");
+        void api.ytNavigate("eval:(function(){ document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', shiftKey: true, bubbles: true })); })()");
         break;
       case "settings-app":
         actions.onNavigate("settings");

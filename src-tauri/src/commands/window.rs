@@ -325,7 +325,25 @@ pub fn yt_navigate(window: Window, action: String) -> AppResult<()> {
         "voice" => "(function(){ const b = document.querySelector('#voice-search-button button, yt-icon-button#voice-search-button button, #voice-search-button'); if (b) b.click(); })()".to_string(),
         act if act.starts_with("search:") => {
             let query = &act[7..];
-            format!("location.href = 'https://www.youtube.com/results?search_query={query}'")
+            format!(
+                r#"
+                (function() {{
+                    var q = decodeURIComponent('{query}');
+                    var box = document.querySelector('ytd-searchbox');
+                    var input = document.querySelector('input#search');
+                    if (box && input) {{
+                        input.value = q;
+                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        var form = box.querySelector('#search-form');
+                        if (form) {{
+                            form.dispatchEvent(new Event('submit', {{ bubbles: true, cancelable: true }}));
+                            return;
+                        }}
+                    }}
+                    location.href = 'https://www.youtube.com/results?search_query={query}';
+                }})()
+                "#
+            )
         }
         act if act.starts_with("url:") => {
             let target = &act[4..];

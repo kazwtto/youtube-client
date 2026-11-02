@@ -52,13 +52,29 @@
       return;
     }
 
-    const avatarImg = document.querySelector(
-      "#avatar-btn img, ytd-topbar-menu-button-renderer #avatar img, button#avatar-btn img, ytd-masthead #avatar-btn img",
+    let isYtcfgLoggedIn = null;
+    try {
+      if (window.ytcfg && typeof window.ytcfg.get === "function") {
+        isYtcfgLoggedIn = Boolean(window.ytcfg.get("LOGGED_IN"));
+      }
+    } catch (_e) {}
+
+    let avatarImg = document.querySelector(
+      "#avatar-btn img, ytd-topbar-menu-button-renderer #avatar img, button#avatar-btn img, ytd-masthead #avatar-btn img, yt-img-shadow#avatar img",
     );
-    const loginLink = document.querySelector("#buttons a[href*='ServiceLogin']");
+    if (!avatarImg) {
+      const shadowHost = document.querySelector("yt-img-shadow#avatar, #avatar-btn yt-img-shadow");
+      if (shadowHost && shadowHost.shadowRoot) {
+        avatarImg = shadowHost.shadowRoot.querySelector("img");
+      }
+    }
+
+    const loginLink = document.querySelector(
+      "#buttons a[href*='ServiceLogin'], a[href*='accounts.google.com/ServiceLogin']",
+    );
 
     let authState = null;
-    if (avatarImg && avatarImg.src) {
+    if (avatarImg && avatarImg.src && (isYtcfgLoggedIn === true || (isYtcfgLoggedIn === null && !loginLink))) {
       const nameEl = document.querySelector(
         "#channel-name, #account-name, ytd-multi-page-menu-renderer #account-name",
       );
@@ -71,7 +87,7 @@
         displayName: nameEl ? (nameEl.textContent || "").trim() : null,
         handle: handleEl ? (handleEl.textContent || "").trim() : null,
       };
-    } else if (loginLink) {
+    } else if (loginLink || isYtcfgLoggedIn === false) {
       authState = { loggedIn: false, avatarUrl: null, displayName: null, handle: null };
     }
 

@@ -126,7 +126,7 @@ export const ptBR: Record<TranslationKey, string> = {
   "extensions.installing": "Adicionando…",
   "extensions.installed": "“{name}” adicionada.",
   "extensions.noPermissions": "Não pede nenhuma permissão",
-  "extensions.native": "YT Desktop",
+  "extensions.native": "YTClient",
   "extensions.active": "Ligada",
   "extensions.inactive": "Desligada",
   "extensions.noDescription": "Sem descrição.",

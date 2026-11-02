@@ -80,18 +80,41 @@ fn record_history(
 
     let repository = state.history.clone();
     let keep_thumbnails = settings.history.keep_thumbnails;
+    let thumbnails_dir = state.paths.thumbnails_dir.clone();
 
     tauri::async_runtime::spawn(async move {
+        let thumbnail_url = if keep_thumbnails {
+            if let Some(url) = &record.thumbnail_url {
+                let video_id = &record.video_id;
+                let file_path = thumbnails_dir.join(format!("{}.jpg", video_id));
+                let downloaded = if file_path.exists() {
+                    true
+                } else {
+                    let u = url.clone();
+                    let p = file_path.clone();
+                    tokio::task::spawn_blocking(move || download_thumbnail(&u, &p))
+                        .await
+                        .unwrap_or(false)
+                };
+
+                if downloaded {
+                    Some(file_path.to_string_lossy().to_string())
+                } else {
+                    record.thumbnail_url.clone()
+                }
+            } else {
+                record.thumbnail_url.clone()
+            }
+        } else {
+            None
+        };
+
         let input = WatchEventInput {
             video_id: record.video_id,
             title: record.title,
             channel: record.channel,
             duration_secs: record.duration_secs,
-            thumbnail_url: if keep_thumbnails {
-                record.thumbnail_url
-            } else {
-                None
-            },
+            thumbnail_url,
             watched_at: None,
         };
 
@@ -99,4 +122,47 @@ fn record_history(
     });
 
     Ok(())
+}
+
+#[cfg(windows)]
+fn download_thumbnail(url: &str, destination: &std::path::Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+
+    let url_wide: Vec<u16> = std::ffi::OsStr::new(url)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let dest_wide: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    #[link(name = "urlmon")]
+    extern "system" {
+        fn URLDownloadToFileW(
+            pCaller: *mut std::ffi::c_void,
+            szURL: *const u16,
+            szFileName: *const u16,
+            dwReserved: u32,
+            lpfnCB: *mut std::ffi::c_void,
+        ) -> i32;
+    }
+
+    let hr = unsafe {
+        URLDownloadToFileW(
+            std::ptr::null_mut(),
+            url_wide.as_ptr(),
+            dest_wide.as_ptr(),
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+
+    hr == 0
+}
+
+#[cfg(not(windows))]
+fn download_thumbnail(_url: &str, _destination: &std::path::Path) -> bool {
+    false
 }

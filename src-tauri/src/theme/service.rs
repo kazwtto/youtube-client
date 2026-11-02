@@ -69,13 +69,17 @@ impl ThemeService {
             match resolved.backdrop {
                 Backdrop::Mica => {
                     let _ = clear_acrylic(window);
-                    apply_mica(window, Some(dark))
-                        .map_err(|error| AppError::Other(error.to_string()))?;
+                    if apply_mica(window, Some(dark)).is_err() {
+                        // Fallback gracefully on Windows builds without Mica support
+                        let _ = clear_mica(window);
+                    }
                 }
                 Backdrop::Acrylic => {
                     let _ = clear_mica(window);
-                    apply_acrylic(window, None)
-                        .map_err(|error| AppError::Other(error.to_string()))?;
+                    if apply_acrylic(window, None).is_err() {
+                        // Fallback gracefully on Windows builds without Acrylic support
+                        let _ = clear_acrylic(window);
+                    }
                 }
                 Backdrop::Solid => {
                     let _ = clear_mica(window);

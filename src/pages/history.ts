@@ -1,3 +1,5 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
+
 import { getLocale, t } from "../i18n";
 import { api, type HistoryEntry } from "../lib/api";
 import { escapeHtml } from "../lib/html";
@@ -56,7 +58,10 @@ function formatDuration(seconds: number | null): string {
 
 function thumbnailFor(entry: HistoryEntry): string | null {
   if (entry.thumbnailPath) {
-    return entry.thumbnailPath;
+    if (entry.thumbnailPath.startsWith("http://") || entry.thumbnailPath.startsWith("https://")) {
+      return entry.thumbnailPath;
+    }
+    return convertFileSrc(entry.thumbnailPath);
   }
 
   if (/^[A-Za-z0-9_-]{6,}$/.test(entry.id)) {

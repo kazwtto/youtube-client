@@ -14,7 +14,8 @@
   padding: 0 0 24px;
 }
 
-.page--discord {
+.page--discord,
+.page--settings {
   padding-bottom: 0;
 }
 
@@ -455,7 +456,7 @@
 }
 
 .settings__status[data-state="idle"] {
-  visibility: hidden;
+  display: none;
 }
 
 .settings__status-dot {
@@ -488,7 +489,8 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.yt-section:last-child {
+.yt-section:last-child,
+.settings .yt-section {
   padding-bottom: 0;
   border-bottom: 0;
 }
@@ -883,12 +885,19 @@
   gap: 20px;
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: 6px;
 }
 
 .history::-webkit-scrollbar {
   width: 6px;
+  height: 0;
+}
+
+.history::-webkit-scrollbar:horizontal {
+  display: none;
+  height: 0;
 }
 
 .history::-webkit-scrollbar-thumb {

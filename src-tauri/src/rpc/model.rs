@@ -133,27 +133,39 @@ pub fn build_activity(
 
     let labels = labels_for(language);
 
-    let title = snapshot
+    let mut title = snapshot
         .title
         .clone()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "YouTube".into());
+    if title.chars().count() < 2 {
+        title.push(' ');
+    }
+    let details = truncate(&title, 128);
+
     let channel = snapshot
         .channel
         .clone()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "YouTube".into());
+    let mut state_str = format!("{} {channel}", labels.by);
+    if state_str.chars().count() < 2 {
+        state_str = "YouTube".to_string();
+    }
+    let state = truncate(&state_str, 128);
 
+    // Discord Rich Presence expects timestamps in SECONDS (Unix epoch in seconds).
     let (start_timestamp, end_timestamp) = if settings.show_timestamps && !snapshot.is_livestream {
-        let position_ms = snapshot.position_secs.unwrap_or(0.0).max(0.0) * 1000.0;
-        let start = now_millis() - position_ms as i64;
+        let position_sec = snapshot.position_secs.unwrap_or(0.0).max(0.0) as i64;
+        let now = now_secs();
+        let start = now.saturating_sub(position_sec);
         let end = snapshot
             .duration_secs
             .filter(|duration| *duration > 0.0)
-            .map(|duration| start + (duration * 1000.0) as i64);
+            .map(|duration| start + duration as i64);
         (Some(start), end)
     } else if settings.show_timestamps && snapshot.is_livestream {
-        (Some(now_millis()), None)
+        (Some(now_secs()), None)
     } else {
         (None, None)
     };
@@ -162,25 +174,22 @@ pub fn build_activity(
         .artwork_url
         .clone()
         .filter(|value| !value.is_empty());
-    let large_image_text = Some(title.clone());
+    let large_image_text = Some(details.clone());
 
-    let small_image_key = Some(if playing { "play" } else { "pause" }.to_string());
-    let small_image_text = Some(
-        if playing {
-            labels.playing
-        } else {
-            labels.paused
-        }
-        .to_string(),
-    );
+    // Do NOT send unverified keys like "play"/"pause" to small_image_key.
+    // If an asset key does not exist on Discord Developer App, Discord rejects the entire activity.
+    let small_image_key = None;
+    let small_image_text = None;
 
     let mut buttons = Vec::new();
     if settings.show_video_button {
         if let Some(url) = snapshot.url.clone().filter(|value| !value.is_empty()) {
-            buttons.push(ActivityButton {
-                label: truncate(labels.watch, 32),
-                url,
-            });
+            if url.starts_with("http://") || url.starts_with("https://") {
+                buttons.push(ActivityButton {
+                    label: truncate(labels.watch, 32),
+                    url,
+                });
+            }
         }
     }
     if settings.show_channel_button {
@@ -189,17 +198,19 @@ pub fn build_activity(
             .clone()
             .filter(|value| !value.is_empty())
         {
-            buttons.push(ActivityButton {
-                label: truncate(labels.channel, 32),
-                url: channel_url,
-            });
+            if channel_url.starts_with("http://") || channel_url.starts_with("https://") {
+                buttons.push(ActivityButton {
+                    label: truncate(labels.channel, 32),
+                    url: channel_url,
+                });
+            }
         }
     }
     buttons.truncate(2);
 
     Some(DiscordActivity {
-        details: title,
-        state: format!("{} {channel}", labels.by),
+        details,
+        state,
         start_timestamp,
         end_timestamp,
         large_image_key,
@@ -220,6 +231,15 @@ pub fn app_id_for(settings: &RpcSettings, is_music: bool) -> &str {
     }
 }
 
+pub fn now_secs() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
+}
+
 pub fn now_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -230,8 +250,6 @@ pub fn now_millis() -> i64 {
 }
 
 struct RpcLabels {
-    playing: &'static str,
-    paused: &'static str,
     watch: &'static str,
     channel: &'static str,
     by: &'static str,
@@ -240,16 +258,12 @@ struct RpcLabels {
 fn labels_for(language: &str) -> RpcLabels {
     if language.to_ascii_lowercase().starts_with("pt") {
         RpcLabels {
-            playing: "Reproduzindo",
-            paused: "Pausado",
             watch: "Assistir no YouTube",
             channel: "Abrir canal",
             by: "por",
         }
     } else {
         RpcLabels {
-            playing: "Playing",
-            paused: "Paused",
             watch: "Watch on YouTube",
             channel: "Open channel",
             by: "by",
@@ -307,8 +321,7 @@ mod tests {
 
         assert_eq!(activity.details, "A video");
         assert_eq!(activity.state, "by A channel");
-        assert_eq!(activity.small_image_key.as_deref(), Some("play"));
-        assert_eq!(activity.small_image_text.as_deref(), Some("Playing"));
+        assert_eq!(activity.small_image_key, None);
         assert_eq!(activity.large_image_text.as_deref(), Some("A video"));
         assert_eq!(activity.buttons.len(), 2);
         assert_eq!(
@@ -319,8 +332,8 @@ mod tests {
 
         let start = activity.start_timestamp.expect("start");
         let end = activity.end_timestamp.expect("end");
-        assert_eq!(end - start, 90_000);
-        assert!((now_millis() - 30_000 - start).abs() < 5_000);
+        assert_eq!(end - start, 90);
+        assert!((now_secs() - 30 - start).abs() < 5);
     }
 
     #[test]
@@ -357,8 +370,7 @@ mod tests {
         settings.idle_when_paused = false;
 
         let activity = build_activity(&snapshot, &settings, "en").expect("activity");
-        assert_eq!(activity.small_image_key.as_deref(), Some("pause"));
-        assert_eq!(activity.small_image_text.as_deref(), Some("Paused"));
+        assert_eq!(activity.details, "A video");
     }
 
     #[test]
@@ -389,7 +401,6 @@ mod tests {
             build_activity(&playing_snapshot(), &enabled_settings(), "pt-BR").expect("activity");
 
         assert_eq!(activity.state, "por A channel");
-        assert_eq!(activity.small_image_text.as_deref(), Some("Reproduzindo"));
         assert_eq!(activity.buttons[0].label, "Assistir no YouTube");
         assert_eq!(activity.buttons[1].label, "Abrir canal");
     }

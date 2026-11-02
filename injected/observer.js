@@ -10,9 +10,17 @@
 
   const SELECTORS = {
     player: "#movie_player",
-    videoTitle: "h1.ytd-watch-metadata yt-formatted-string",
-    playerTitle: "div.ytp-chrome-top a.ytp-title-link",
-    channel: "#upload-info #channel-name a",
+    videoTitle: [
+      "h1.ytd-watch-metadata yt-formatted-string",
+      "h1.title.ytd-video-primary-info-renderer",
+      "div.ytp-chrome-top a.ytp-title-link",
+    ],
+    channel: [
+      "#owner #channel-name a",
+      "#upload-info #channel-name a",
+      "ytd-channel-name a",
+      "#owner-name a",
+    ],
   };
 
   const EMPTY_SNAPSHOT = {
@@ -62,8 +70,14 @@
 
     try {
       const url = new URL(window.location.href);
-      if (url.hostname.endsWith("youtube.com") && url.pathname === "/watch") {
-        return url.searchParams.get("v");
+      if (url.hostname.endsWith("youtube.com")) {
+        if (url.pathname === "/watch") {
+          return url.searchParams.get("v");
+        }
+        if (url.pathname.startsWith("/shorts/")) {
+          const parts = url.pathname.split("/");
+          return parts[2] || null;
+        }
       }
     } catch (_error) {
       // Ignore invalid URLs.
@@ -73,6 +87,16 @@
   }
 
   function readText(selector) {
+    if (Array.isArray(selector)) {
+      for (const sel of selector) {
+        const text = readText(sel);
+        if (text) {
+          return text;
+        }
+      }
+      return null;
+    }
+
     const element = document.querySelector(selector);
     if (!element) {
       return null;
@@ -84,21 +108,25 @@
 
   /// Resolves the absolute channel URL from the channel link.
   function readChannelUrl() {
-    const element = document.querySelector(SELECTORS.channel);
-    if (!element) {
-      return null;
+    const selectors = Array.isArray(SELECTORS.channel)
+      ? SELECTORS.channel
+      : [SELECTORS.channel];
+
+    for (const sel of selectors) {
+      const element = document.querySelector(sel);
+      if (element) {
+        const href = element.getAttribute("href") || element.href;
+        if (href) {
+          try {
+            return new URL(href, window.location.origin).href;
+          } catch (_error) {
+            // Try next selector
+          }
+        }
+      }
     }
 
-    const href = element.getAttribute("href") || element.href;
-    if (!href) {
-      return null;
-    }
-
-    try {
-      return new URL(href, window.location.origin).href;
-    } catch (_error) {
-      return null;
-    }
+    return null;
   }
 
   function currentSnapshot() {
@@ -127,7 +155,7 @@
       title:
         readText(SELECTORS.videoTitle) ||
         document.title.replace(/\s*-\s*YouTube$/, "").trim() ||
-        readText(SELECTORS.playerTitle),
+        readText("div.ytp-chrome-top a.ytp-title-link"),
       channel: readText(SELECTORS.channel),
       channelUrl: readChannelUrl(),
       artworkUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,

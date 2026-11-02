@@ -35,7 +35,7 @@ impl AppState {
         let paths = AppPaths::resolve(app)?;
         let settings = SettingsStore::load(paths.settings_file.clone())?;
         let extensions = ExtensionService::new(paths.extensions_dir.clone());
-        let rpc = RpcService::new();
+        let rpc = RpcService::new(Some(app.clone()));
         let history =
             tauri::async_runtime::block_on(HistoryRepository::connect(&paths.database_file))?;
 

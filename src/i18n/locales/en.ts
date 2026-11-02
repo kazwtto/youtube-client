@@ -124,7 +124,7 @@ export const en = {
   "extensions.installing": "Adding…",
   "extensions.installed": "“{name}” added.",
   "extensions.noPermissions": "Asks for no permissions",
-  "extensions.native": "YT Desktop",
+  "extensions.native": "YTClient",
   "extensions.active": "On",
   "extensions.inactive": "Off",
   "extensions.noDescription": "No description.",

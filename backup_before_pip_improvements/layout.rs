@@ -42,7 +42,7 @@ pub fn setup(
     let height = window_settings.height.max(600.0);
 
     let window = tauri::window::WindowBuilder::new(app, MAIN_WINDOW_LABEL)
-        .title("YT Desktop")
+        .title("YouTube Client")
         .inner_size(width, height)
         .min_inner_size(960.0, 600.0)
         .decorations(false)

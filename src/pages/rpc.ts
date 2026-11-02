@@ -1,72 +1,194 @@
+import { listen } from "@tauri-apps/api/event";
+
 import { t } from "../i18n";
-import { api } from "../lib/api";
-import { escapeHtml } from "../lib/html";
+import { api, type AppSettings, type RpcStatus } from "../lib/api";
+
+function hintFor(status: RpcStatus): string {
+  if (status.state === "disabled") {
+    return t("rpc.disabledHint");
+  }
+
+  if (status.state === "connected") {
+    return t("rpc.connectedHint");
+  }
+
+  return status.detail ?? t("rpc.noDetail");
+}
 
 export async function renderRpc(host: HTMLElement): Promise<void> {
   const [status, settings] = await Promise.all([api.rpcStatus(), api.settingsGet()]);
-
-  const detail =
-    status.state === "notConfigured"
-      ? t("rpc.notConfiguredDetail")
-      : (status.detail ?? t("rpc.noDetail"));
+  let current = settings;
 
   host.innerHTML = `
-    <section class="page">
+    <section class="page page--discord">
       <header class="page__header">
-        <p class="eyebrow">${t("rpc.eyebrow")}</p>
         <h1>${t("rpc.title")}</h1>
         <p class="page__lead">${t("rpc.lead")}</p>
       </header>
 
-      <div class="card">
-        <div class="status-row">
-          <span class="status-dot" data-state="${escapeHtml(status.state)}"></span>
-          <div>
-            <h2>${escapeHtml(rpcLabel(status.state))}</h2>
-            <p class="muted">${escapeHtml(detail)}</p>
-          </div>
-        </div>
+      <section class="yt-section">
+        <h2 class="yt-section__title">${t("rpc.section")}</h2>
 
-        <p class="muted">
-          ${t("rpc.applicationId")}
-          ${settings.rpc.appId ? escapeHtml(settings.rpc.appId) : t("rpc.notConfigured")}
-        </p>
+        <label class="yt-setting">
+          <span class="yt-setting__text">
+            <span class="yt-setting__label">${t("rpc.enabled")}</span>
+            <span class="yt-setting__hint">${t("rpc.enabledHint")}</span>
+          </span>
+          <span class="yt-switch">
+            <input type="checkbox" role="switch" name="rpcEnabled" />
+            <span class="yt-switch__track" aria-hidden="true"></span>
+          </span>
+        </label>
 
-        <div class="toolbar">
-          <button type="button" class="button button--primary" id="rpc-settings">
-            ${t("rpc.openSettings")}
-          </button>
-        </div>
-      </div>
+        <p class="rpc-problem" id="rpc-problem" role="status" aria-live="polite" hidden></p>
+      </section>
 
-      <div class="card">
-        <h2>${t("rpc.howItWorks")}</h2>
-        <p>${t("rpc.howItWorksBody")}</p>
-        <p>${t("rpc.setupBody")}</p>
-      </div>
+      <section class="yt-section">
+        <h2 class="yt-section__title">${t("rpc.displayTitle")}</h2>
+
+        <label class="yt-setting">
+          <span class="yt-setting__text">
+            <span class="yt-setting__label">${t("rpc.timestamps")}</span>
+          </span>
+          <span class="yt-switch">
+            <input type="checkbox" role="switch" name="rpcTimestamps" />
+            <span class="yt-switch__track" aria-hidden="true"></span>
+          </span>
+        </label>
+
+        <label class="yt-setting">
+          <span class="yt-setting__text">
+            <span class="yt-setting__label">${t("rpc.videoButton")}</span>
+          </span>
+          <span class="yt-switch">
+            <input type="checkbox" role="switch" name="rpcVideoButton" />
+            <span class="yt-switch__track" aria-hidden="true"></span>
+          </span>
+        </label>
+
+        <label class="yt-setting">
+          <span class="yt-setting__text">
+            <span class="yt-setting__label">${t("rpc.channelButton")}</span>
+          </span>
+          <span class="yt-switch">
+            <input type="checkbox" role="switch" name="rpcChannelButton" />
+            <span class="yt-switch__track" aria-hidden="true"></span>
+          </span>
+        </label>
+
+        <label class="yt-setting">
+          <span class="yt-setting__text">
+            <span class="yt-setting__label">${t("rpc.idle")}</span>
+            <span class="yt-setting__hint">${t("rpc.idleHint")}</span>
+          </span>
+          <span class="yt-switch">
+            <input type="checkbox" role="switch" name="rpcIdle" />
+            <span class="yt-switch__track" aria-hidden="true"></span>
+          </span>
+        </label>
+      </section>
+
+      <p class="rpc-saved" id="rpc-saved" role="status" aria-live="polite" hidden>
+        ${t("rpc.saved")}
+      </p>
     </section>
   `;
 
-  host
-    .querySelector<HTMLButtonElement>("#rpc-settings")
-    ?.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("app:navigate", { detail: "settings" }));
-    });
-}
+  const enabled = host.querySelector<HTMLInputElement>('[name="rpcEnabled"]')!;
+  const timestamps = host.querySelector<HTMLInputElement>('[name="rpcTimestamps"]')!;
+  const videoButton = host.querySelector<HTMLInputElement>('[name="rpcVideoButton"]')!;
+  const channelButton = host.querySelector<HTMLInputElement>('[name="rpcChannelButton"]')!;
+  const idle = host.querySelector<HTMLInputElement>('[name="rpcIdle"]')!;
+  const saved = host.querySelector<HTMLElement>("#rpc-saved")!;
+  const statusLine = host.querySelector<HTMLElement>("#rpc-problem")!;
 
-function rpcLabel(state: string): string {
-  switch (state) {
-    case "connected":
-      return t("rpc.state.connected");
-    case "connecting":
-      return t("rpc.state.connecting");
-    case "idle":
-      return t("rpc.state.idle");
-    case "notConfigured":
-      return t("rpc.state.notConfigured");
-    case "error":
-      return t("rpc.state.error");
-    default:
-      return t("rpc.state.disabled");
+  const syncForm = (value: AppSettings): void => {
+    current = value;
+    enabled.checked = value.rpc.enabled;
+    timestamps.checked = value.rpc.showTimestamps;
+    videoButton.checked = value.rpc.showVideoButton;
+    channelButton.checked = value.rpc.showChannelButton;
+    idle.checked = value.rpc.idleWhenPaused;
+  };
+
+  syncForm(current);
+
+  let timer: number | undefined;
+  let savedTimer: number | undefined;
+  let saving = false;
+
+  const save = async (): Promise<void> => {
+    if (saving) {
+      return;
+    }
+
+    const next: AppSettings = {
+      ...current,
+      rpc: {
+        ...current.rpc,
+        enabled: enabled.checked,
+        showTimestamps: timestamps.checked,
+        showVideoButton: videoButton.checked,
+        showChannelButton: channelButton.checked,
+        idleWhenPaused: idle.checked,
+      },
+    };
+
+    if (JSON.stringify(next) === JSON.stringify(current)) {
+      return;
+    }
+
+    saving = true;
+
+    try {
+      current = await api.settingsUpdate(next);
+      saved.hidden = false;
+      if (savedTimer !== undefined) {
+        window.clearTimeout(savedTimer);
+      }
+      savedTimer = window.setTimeout(() => {
+        saved.hidden = true;
+      }, 1600);
+
+      const status = await api.rpcStatus();
+      applyStatus(status);
+    } catch (error) {
+      saved.textContent = t("common.error", { error: String(error) });
+      saved.hidden = false;
+    } finally {
+      saving = false;
+    }
+  };
+
+  const queueSave = (delay: number): void => {
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+    }
+
+    timer = window.setTimeout(() => {
+      timer = undefined;
+      void save();
+    }, delay);
+  };
+
+  function applyStatus(status: RpcStatus): void {
+    // The switch already says whether the integration is on; only a real
+    // problem deserves a line of text.
+    const problem = status.state === "error" ? hintFor(status) : "";
+    statusLine.textContent = problem;
+    statusLine.hidden = problem === "";
   }
+
+  applyStatus(status);
+
+  host.addEventListener("change", () => queueSave(0));
+  host.addEventListener("input", (event) => {
+    if (event.target instanceof HTMLInputElement && event.target.type === "text") {
+      queueSave(600);
+    }
+  });
+
+  await listen<RpcStatus>("rpc://status", (event) => {
+    applyStatus(event.payload);
+  }).catch(() => undefined);
 }

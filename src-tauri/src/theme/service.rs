@@ -27,6 +27,13 @@ impl ThemeService {
             &definition.light
         };
 
+        // High contrast is defined by solid black/white surfaces; a translucent
+        // material behind the window would reduce the contrast it promises.
+        let mut effective = settings.clone();
+        if definition.id == "high-contrast" {
+            effective.backdrop = Backdrop::Solid;
+        }
+
         Ok(ResolvedTheme {
             theme_id: definition.id.to_string(),
             name: definition.name.to_string(),
@@ -36,9 +43,9 @@ impl ThemeService {
             } else {
                 ThemeMode::Light
             },
-            backdrop: settings.backdrop,
+            backdrop: effective.backdrop,
             accent: settings.accent.clone(),
-            tokens: tokens::build(palette, settings, effective_dark),
+            tokens: tokens::build(palette, &effective, effective_dark),
         })
     }
 
@@ -51,6 +58,13 @@ impl ThemeService {
         #[cfg(windows)]
         {
             use window_vibrancy::{apply_acrylic, apply_mica, clear_acrylic, clear_mica};
+
+            // Applying a material can change the window frame on some Windows
+            // builds, which visibly grows the window. Restore the client size
+            // afterwards if the compositor changed it.
+            let size_before = window.inner_size().ok();
+            let resizable = !window.is_maximized().unwrap_or(false)
+                && !window.is_fullscreen().unwrap_or(false);
 
             match resolved.backdrop {
                 Backdrop::Mica => {
@@ -66,6 +80,14 @@ impl ThemeService {
                 Backdrop::Solid => {
                     let _ = clear_mica(window);
                     let _ = clear_acrylic(window);
+                }
+            }
+
+            if resizable {
+                if let Some(before) = size_before {
+                    if window.inner_size().map(|now| now != before).unwrap_or(false) {
+                        let _ = window.set_size(tauri::Size::Physical(before));
+                    }
                 }
             }
         }

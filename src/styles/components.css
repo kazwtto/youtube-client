@@ -138,8 +138,36 @@
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 28px 32px 48px;
+  padding: 24px 32px;
+  box-sizing: border-box;
+}
+
+.content:has(.page--history) {
+  overflow: hidden;
+  padding: 24px 32px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.content:has(.page--history) > .page--history {
+  flex: 1;
+  min-height: 0;
   background: var(--color-bg);
+}
+
+/*
+ * The YouTube webview covers this area on the Home route. The local UI must not
+ * paint a page behind it, otherwise its text and background would show through
+ * the transparent surfaces of the site instead of the native Mica/Acrylic
+ * backdrop of the window.
+ */
+.content[data-youtube="true"] {
+  padding: 0;
+  background: transparent;
+}
+
+.content[data-youtube="true"] > * {
+  display: none;
 }
 
 /* Basic components */
@@ -323,4 +351,206 @@
   border-radius: var(--radius-lg);
   color: var(--color-fg-muted);
   text-align: center;
+}
+
+/* Tabs in the title bar (YouTube-style underline tabs) */
+
+.titlebar__tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 100%;
+  margin-left: 6px;
+  overflow: hidden;
+}
+
+.titlebar__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 13px;
+  border: 0;
+  background: transparent;
+  color: var(--color-fg-muted);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color var(--motion-fast) ease, background var(--motion-fast) ease;
+}
+
+.titlebar__tab:hover {
+  background: var(--color-hover);
+  color: var(--color-fg);
+}
+
+.titlebar__tab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -4px;
+  border-radius: var(--radius-sm);
+}
+
+.titlebar__tab--active {
+  color: var(--color-fg);
+}
+
+.titlebar__tab--active::after {
+  content: "";
+  position: absolute;
+  right: 11px;
+  bottom: 0;
+  left: 11px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-fg);
+}
+
+.titlebar__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-fg-muted);
+}
+
+.titlebar__dot[data-rpc-state="connected"] {
+  background: var(--color-success);
+}
+
+.titlebar__dot[data-rpc-state="connecting"] {
+  background: var(--color-warning);
+}
+
+.titlebar__dot[data-rpc-state="error"] {
+  background: var(--color-danger);
+}
+
+/* Loading state for the YouTube surface */
+
+.shell {
+  position: relative;
+}
+
+.yt-loading {
+  position: absolute;
+  top: var(--titlebar-height);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  background: var(--color-bg);
+  z-index: 3;
+}
+
+.yt-loading[hidden] {
+  display: none;
+}
+
+.yt-loading__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+.yt-loading__spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid color-mix(in srgb, var(--color-fg) 16%, transparent);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: yt-loading-spin 900ms linear infinite;
+}
+
+.yt-loading__label,
+.yt-loading__slow {
+  margin: 0;
+  color: var(--color-fg-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.yt-loading__slow {
+  color: var(--color-fg);
+}
+
+@keyframes yt-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yt-loading__spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* Modal dialog */
+
+.yt-modal {
+  width: min(440px, calc(100% - 48px));
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  color: var(--color-fg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.yt-modal::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.yt-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px;
+}
+
+.yt-modal__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.yt-modal__text {
+  margin: 0;
+  color: var(--color-fg-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.yt-modal__list {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  color: var(--color-fg-muted);
+  font-size: 13px;
+  line-height: 22px;
+}
+
+.yt-modal__list code {
+  color: var(--color-fg);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.yt-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.yt-button--tonal {
+  background: color-mix(in srgb, var(--color-fg) 12%, transparent);
+}
+
+.yt-button--tonal:hover {
+  background: color-mix(in srgb, var(--color-fg) 20%, transparent);
 }

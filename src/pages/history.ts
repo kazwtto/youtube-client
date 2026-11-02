@@ -1,23 +1,118 @@
 import { getLocale, t } from "../i18n";
-import { api } from "../lib/api";
+import { api, type HistoryEntry } from "../lib/api";
 import { escapeHtml } from "../lib/html";
+
+const SEARCH_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>`;
+const CLOCK_ICON = `<svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
+const PLAY_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72L19 12 8 5.14Z"/></svg>`;
+const MORE_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>`;
+const TRASH_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>`;
+const LIST_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`;
+const GRID_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>`;
+const COPY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="13" height="13" x="9" y="9" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+
+let menuAbort: AbortController | undefined;
+
+function dayStart(timestamp: number): number {
+  const date = new Date(timestamp);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function groupLabel(timestamp: number): string {
+  const day = dayStart(timestamp);
+  const today = dayStart(Date.now());
+
+  if (day === today) {
+    return t("history.today");
+  }
+
+  if (day === today - 86_400_000) {
+    return t("history.yesterday");
+  }
+
+  return new Date(timestamp).toLocaleDateString(getLocale(), {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function formatDuration(seconds: number | null): string {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) {
+    return "";
+  }
+
+  const total = Math.round(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+function thumbnailFor(entry: HistoryEntry): string | null {
+  if (entry.thumbnailPath) {
+    return entry.thumbnailPath;
+  }
+
+  if (/^[A-Za-z0-9_-]{6,}$/.test(entry.id)) {
+    return `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`;
+  }
+
+  return null;
+}
 
 export async function renderHistory(host: HTMLElement): Promise<void> {
   host.innerHTML = `
-    <section class="page">
-      <header class="page__header">
-        <p class="eyebrow">${t("history.eyebrow")}</p>
-        <h1>${t("history.title")}</h1>
-        <p class="page__lead">${t("history.lead")}</p>
+    <section class="page page--history">
+      <header class="page__header page__header--row">
+        <div>
+          <h1>${t("history.title")}</h1>
+          <p class="page__lead">${t("history.lead")}</p>
+        </div>
+        <button type="button" class="yt-button yt-button--danger" id="history-clear">
+          ${TRASH_ICON}<span>${t("history.clear")}</span>
+        </button>
       </header>
 
-      <div class="toolbar">
-        <input type="search" id="history-search" class="text-input" placeholder="${t("history.searchPlaceholder")}" />
-        <button type="button" class="button button--danger" id="history-clear">${t("history.clear")}</button>
+      <div class="history-toolbar">
+        <div class="yt-search">
+          ${SEARCH_ICON}
+          <input
+            type="search"
+            id="history-search"
+            placeholder="${t("history.searchPlaceholder")}"
+            aria-label="${t("history.searchPlaceholder")}"
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="history-filters" role="radiogroup" aria-label="Filtro de data">
+          <button type="button" class="history-filter-chip is-active" data-filter="all">${t("history.filterAll")}</button>
+          <button type="button" class="history-filter-chip" data-filter="today">${t("history.filterToday")}</button>
+          <button type="button" class="history-filter-chip" data-filter="yesterday">${t("history.filterYesterday")}</button>
+          <button type="button" class="history-filter-chip" data-filter="week">${t("history.filterWeek")}</button>
+        </div>
+
+        <span class="history-count" id="history-count"></span>
+
+        <div class="history-view-toggle" role="group" aria-label="Modo de exibição">
+          <button type="button" class="history-view-btn is-active" data-view="list" title="${t("history.viewList")}" aria-label="${t("history.viewList")}">
+            ${LIST_ICON}
+          </button>
+          <button type="button" class="history-view-btn" data-view="grid" title="${t("history.viewGrid")}" aria-label="${t("history.viewGrid")}">
+            ${GRID_ICON}
+          </button>
+        </div>
       </div>
 
-      <div id="history-list" class="history"></div>
-      <p class="status" id="history-status" role="status"></p>
+      <div id="history-list" class="history history--list"></div>
+      <p class="status" id="history-status" role="status" aria-live="polite"></p>
+      <div class="history-toast" id="history-toast" aria-live="polite"></div>
     </section>
   `;
 
@@ -25,66 +120,334 @@ export async function renderHistory(host: HTMLElement): Promise<void> {
   const search = host.querySelector<HTMLInputElement>("#history-search")!;
   const clearButton = host.querySelector<HTMLButtonElement>("#history-clear")!;
   const status = host.querySelector<HTMLElement>("#history-status")!;
+  const count = host.querySelector<HTMLElement>("#history-count")!;
+  const toast = host.querySelector<HTMLElement>("#history-toast")!;
 
   let timer: number | undefined;
+  let toastTimer: number | undefined;
+  let request = 0;
+  let cachedEntries: HistoryEntry[] = [];
+  let activeFilter: "all" | "today" | "yesterday" | "week" = "all";
 
-  async function load(): Promise<void> {
+  let viewMode: "list" | "grid" =
+    (localStorage.getItem("yt_history_view") as "list" | "grid") ?? "list";
+
+  const updateViewMode = (mode: "list" | "grid"): void => {
+    viewMode = mode;
+    localStorage.setItem("yt_history_view", mode);
+    list.classList.toggle("history--grid", mode === "grid");
+    list.classList.toggle("history--list", mode === "list");
+    for (const btn of host.querySelectorAll<HTMLButtonElement>(".history-view-btn")) {
+      btn.classList.toggle("is-active", btn.dataset.view === mode);
+    }
+  };
+
+  updateViewMode(viewMode);
+
+  for (const btn of host.querySelectorAll<HTMLButtonElement>(".history-view-btn")) {
+    btn.addEventListener("click", () => {
+      if (btn.dataset.view === "list" || btn.dataset.view === "grid") {
+        updateViewMode(btn.dataset.view);
+      }
+    });
+  }
+
+  for (const chip of host.querySelectorAll<HTMLButtonElement>(".history-filter-chip")) {
+    chip.addEventListener("click", () => {
+      activeFilter = (chip.dataset.filter as typeof activeFilter) || "all";
+      for (const c of host.querySelectorAll(".history-filter-chip")) {
+        c.classList.toggle("is-active", c === chip);
+      }
+      renderFiltered();
+    });
+  }
+
+  function showToast(message: string): void {
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add("is-visible");
+    if (toastTimer !== undefined) {
+      window.clearTimeout(toastTimer);
+    }
+    toastTimer = window.setTimeout(() => {
+      toast.classList.remove("is-visible");
+    }, 2200);
+  }
+
+  async function copyLink(id: string): Promise<void> {
+    const url = `https://www.youtube.com/watch?v=${id}`;
     try {
-      const entries = await api.historyList({
-        search: search.value.trim(),
-        limit: 100,
-        offset: 0,
-      });
+      await navigator.clipboard.writeText(url);
+      showToast(t("history.linkCopied"));
+    } catch {
+      // ignore clipboard error
+    }
+  }
 
-      list.replaceChildren();
+  const closeMenus = (): void => {
+    for (const panel of list.querySelectorAll<HTMLElement>(".history-menu")) {
+      panel.hidden = true;
+    }
+  };
 
-      if (entries.length === 0) {
-        list.innerHTML = `<div class="empty">${t("history.empty")}</div>`;
+  menuAbort?.abort();
+  menuAbort = new AbortController();
+  document.addEventListener("click", closeMenus, { signal: menuAbort.signal });
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Escape") {
+        closeMenus();
+      }
+    },
+    { signal: menuAbort.signal },
+  );
+
+  async function play(id: string): Promise<void> {
+    document.dispatchEvent(new CustomEvent("app:navigate", { detail: "home" }));
+
+    try {
+      await api.ytPlayVideo(id);
+    } catch (error) {
+      status.textContent = t("common.error", { error: String(error) });
+    }
+  }
+
+  function factLine(entry: HistoryEntry): string {
+    const watched = new Date(entry.lastWatchedAt).toLocaleDateString(getLocale(), {
+      day: "numeric",
+      month: "short",
+      year:
+        new Date(entry.lastWatchedAt).getFullYear() === new Date().getFullYear()
+          ? undefined
+          : "numeric",
+    });
+
+    const views =
+      entry.watchCount === 1
+        ? t("history.view.one", { count: entry.watchCount })
+        : t("history.view.other", { count: entry.watchCount });
+
+    return [entry.channel, views, watched].filter(Boolean).join(" · ");
+  }
+
+  function item(entry: HistoryEntry): HTMLElement {
+    const element = document.createElement("article");
+    element.className = "history-item";
+    element.tabIndex = 0;
+    element.setAttribute("role", "button");
+    element.setAttribute("aria-label", `${entry.title} — ${t("history.play")}`);
+
+    const thumbnail = thumbnailFor(entry);
+    const duration = formatDuration(entry.durationSecs);
+
+    element.innerHTML = `
+      <div class="history-item__thumb">
+        ${
+          thumbnail
+            ? `<img class="history-item__image" src="${escapeHtml(thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+            : `<span class="history-item__image history-item__image--empty" aria-hidden="true"></span>`
+        }
+        ${duration ? `<span class="history-item__duration">${duration}</span>` : ""}
+        <span class="history-item__scrim" aria-hidden="true"><span>${PLAY_ICON}</span></span>
+      </div>
+      <div class="history-item__body">
+        <h3 class="history-item__title">${escapeHtml(entry.title)}</h3>
+        <p class="history-item__meta">${escapeHtml(factLine(entry))}</p>
+      </div>
+      <div class="history-item__menu">
+        <button
+          type="button"
+          class="yt-icon-button history-item__more"
+          data-menu
+          title="${t("history.more")}"
+          aria-label="${t("history.more")}"
+          aria-haspopup="menu"
+        >${MORE_ICON}</button>
+        <div class="history-menu" role="menu" hidden>
+          <button type="button" class="history-menu__item" role="menuitem" data-play>
+            ${PLAY_ICON}<span>${t("history.play")}</span>
+          </button>
+          <button type="button" class="history-menu__item" role="menuitem" data-copy>
+            ${COPY_ICON}<span>${t("history.copyLink")}</span>
+          </button>
+          <button type="button" class="history-menu__item" role="menuitem" data-remove>
+            ${TRASH_ICON}<span>${t("history.removeFromHistory")}</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    element.querySelector<HTMLImageElement>(".history-item__image")?.addEventListener(
+      "error",
+      (event) => {
+        const image = event.currentTarget as HTMLImageElement;
+        if (image.src.includes("hqdefault.jpg")) {
+          image.src = `https://i.ytimg.com/vi/${entry.id}/mqdefault.jpg`;
+          return;
+        }
+        image.classList.add("history-item__image--empty");
+        image.removeAttribute("src");
+      },
+      { once: true },
+    );
+
+    element.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+
+      if (target.closest("[data-menu]")) {
         return;
       }
 
-      for (const entry of entries) {
-        const watchCount =
-          entry.watchCount === 1
-            ? t("history.view.one", { count: entry.watchCount })
-            : t("history.view.other", { count: entry.watchCount });
-
-        const item = document.createElement("article");
-        item.className = "history__item";
-
-        const thumbnail = entry.thumbnailPath
-          ? `<img class="history__thumb" src="${escapeHtml(entry.thumbnailPath)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
-          : `<div class="history__thumb history__thumb--empty" aria-hidden="true"></div>`;
-
-        item.innerHTML = `
-          ${thumbnail}
-          <div class="history__meta">
-            <h2>${escapeHtml(entry.title)}</h2>
-            <p class="muted">${escapeHtml(entry.channel)} · ${watchCount}</p>
-            <p class="muted">${new Date(entry.lastWatchedAt).toLocaleString(getLocale())}</p>
-          </div>
-          <button type="button" class="button" data-remove>${t("history.remove")}</button>
-        `;
-
-        item
-          .querySelector<HTMLButtonElement>("[data-remove]")
-          ?.addEventListener("click", () => {
-            void (async () => {
-              try {
-                await api.historyDelete(entry.id);
-                await load();
-              } catch (error) {
-                status.textContent = t("common.error", {
-                  error: String(error),
-                });
-              }
-            })();
-          });
-
-        list.append(item);
+      if (target.closest("[data-play]")) {
+        closeMenus();
+        void play(entry.id);
+        return;
       }
+
+      if (target.closest("[data-copy]")) {
+        closeMenus();
+        void copyLink(entry.id);
+        return;
+      }
+
+      if (target.closest("[data-remove]")) {
+        closeMenus();
+        void remove(entry.id);
+        return;
+      }
+
+      if (target.closest(".history-menu")) {
+        return;
+      }
+
+      void play(entry.id);
+    });
+
+    element.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        void play(entry.id);
+      }
+    });
+
+    element
+      .querySelector<HTMLButtonElement>("[data-menu]")
+      ?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const panel = element.querySelector<HTMLElement>(".history-menu")!;
+        const wasHidden = panel.hidden;
+        closeMenus();
+        panel.hidden = !wasHidden;
+      });
+
+    return element;
+  }
+
+  async function remove(id: string): Promise<void> {
+    try {
+      await api.historyDelete(id);
+      status.textContent = t("history.removed");
+      await load();
     } catch (error) {
-      list.textContent = t("history.loadError", { error: String(error) });
+      status.textContent = t("common.error", { error: String(error) });
+    }
+  }
+
+  function emptyState(query: string): void {
+    list.innerHTML = query
+      ? `
+        <div class="yt-empty">
+          ${SEARCH_ICON}
+          <p><strong>${t("history.noResults", { query: escapeHtml(query) })}</strong></p>
+          <p>${t("history.noResultsHint")}</p>
+        </div>
+      `
+      : `
+        <div class="yt-empty">
+          ${CLOCK_ICON}
+          <p><strong>${t("history.empty")}</strong></p>
+          <p>${t("history.emptyHint")}</p>
+        </div>
+      `;
+  }
+
+  function renderFiltered(): void {
+    const today = dayStart(Date.now());
+    const yesterday = today - 86_400_000;
+    const weekAgo = Date.now() - 7 * 86_400_000;
+
+    const filtered = cachedEntries.filter((entry) => {
+      if (activeFilter === "today") {
+        return dayStart(entry.lastWatchedAt) === today;
+      }
+      if (activeFilter === "yesterday") {
+        return dayStart(entry.lastWatchedAt) === yesterday;
+      }
+      if (activeFilter === "week") {
+        return entry.lastWatchedAt >= weekAgo;
+      }
+      return true;
+    });
+
+    list.replaceChildren();
+    count.textContent =
+      filtered.length > 0 ? t("history.count", { count: filtered.length }) : "";
+
+    if (filtered.length === 0) {
+      emptyState(search.value.trim());
+      return;
+    }
+
+    const groups = new Map<string, HistoryEntry[]>();
+    for (const entry of filtered) {
+      const label = groupLabel(entry.lastWatchedAt);
+      const group = groups.get(label);
+      if (group) {
+        group.push(entry);
+      } else {
+        groups.set(label, [entry]);
+      }
+    }
+
+    for (const [label, groupEntries] of groups) {
+      const group = document.createElement("section");
+      group.className = "history-group";
+
+      const heading = document.createElement("div");
+      heading.className = "history-group__header";
+      heading.innerHTML = `
+        <h2 class="history-group__title">${label}</h2>
+        <span class="history-group__count">(${groupEntries.length})</span>
+      `;
+      group.append(heading);
+
+      const itemsWrap = document.createElement("div");
+      itemsWrap.className = "history-group__items";
+
+      for (const entry of groupEntries) {
+        itemsWrap.append(item(entry));
+      }
+      group.append(itemsWrap);
+
+      list.append(group);
+    }
+  }
+
+  async function load(): Promise<void> {
+    const current = ++request;
+    const query = search.value.trim();
+
+    try {
+      cachedEntries = await api.historyList({ search: query, limit: 300, offset: 0 });
+      if (current !== request) {
+        return;
+      }
+      renderFiltered();
+    } catch (error) {
+      if (current === request) {
+        list.textContent = t("history.loadError", { error: String(error) });
+      }
     }
   }
 
@@ -95,7 +458,7 @@ export async function renderHistory(host: HTMLElement): Promise<void> {
 
     timer = window.setTimeout(() => {
       void load();
-    }, 250);
+    }, 200);
   });
 
   clearButton.addEventListener("click", () => {

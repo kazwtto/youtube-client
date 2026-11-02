@@ -2,6 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::player::model::PlayerSnapshot;
 
+/// Discord application that owns the Rich Presence artwork and assets. It is
+/// fixed here on purpose: the launcher ships configured, so users never have to
+/// paste identifiers.
+pub const DEFAULT_APP_ID: &str = "1566431228842876968";
+
 /// Discord Rich Presence settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -25,7 +30,7 @@ impl Default for RpcSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            app_id: String::new(),
+            app_id: DEFAULT_APP_ID.to_string(),
             music_app_id: String::new(),
             show_video_button: true,
             show_channel_button: true,

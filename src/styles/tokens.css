@@ -2,17 +2,17 @@
   color-scheme: light;
 
   /* Fallback palette; the backend replaces these values via `theme_get`. */
-  --color-bg: rgba(243, 243, 243, 0.86);
+  --color-bg: rgba(255, 255, 255, 0.72);
   --color-bg-elevated: #ffffff;
-  --color-bg-solid: #f3f3f3;
-  --color-fg: #1b1b1b;
-  --color-fg-muted: #5c5c5c;
+  --color-bg-solid: #ffffff;
+  --color-fg: #0f0f0f;
+  --color-fg-muted: #606060;
   --color-border: rgba(0, 0, 0, 0.08);
   --color-hover: rgba(0, 0, 0, 0.06);
   --color-pressed: rgba(0, 0, 0, 0.12);
-  --color-accent: #0a84ff;
+  --color-accent: #ff0033;
   --color-accent-fg: #ffffff;
-  --color-danger: #c42b1c;
+  --color-danger: #cc0000;
   --color-success: #0f7b0f;
   --color-warning: #9d5d00;
 
@@ -23,7 +23,7 @@
   --motion-fast: 140ms;
   --motion-normal: 140ms;
 
-  --font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-family: "Roboto", "Segoe UI", Arial, sans-serif;
   --font-size-base: 14px;
 
   /* Must match TITLEBAR_HEIGHT in src-tauri/src/window/layout.rs. */

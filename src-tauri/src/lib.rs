@@ -24,6 +24,7 @@ use tauri::Manager;
 /// Initializes and runs the application.
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let state = core::state::AppState::new(app.handle())?;
 
@@ -45,7 +46,7 @@ pub fn run() {
             let webview_data_dir = state.paths.webview_data_dir.clone();
             app.manage(state);
 
-            let window = window::layout::setup(app, &webview_data_dir)?;
+            let window = window::layout::setup(app, &webview_data_dir, &settings.window)?;
 
             // The theme is applied tolerantly: if the material is not
             // supported (e.g. Mica on older Windows versions), the app still
@@ -73,6 +74,17 @@ pub fn run() {
             commands::window::app_version,
             commands::window::set_webview_visible,
             commands::window::yt_navigate,
+            commands::window::yt_play_video,
+            commands::window::pip_open,
+            commands::window::pip_current,
+            commands::window::pip_restore,
+            commands::window::pip_close,
+            commands::window::pip_set_ratio,
+            commands::window::pip_drag_start,
+            commands::window::pip_move_by,
+            commands::window::pip_drag_end,
+            commands::window::pip_next,
+            commands::window::pip_sync_time,
             commands::theme::theme_list,
             commands::theme::theme_get,
             commands::settings::settings_get,

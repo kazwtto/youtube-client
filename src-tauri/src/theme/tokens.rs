@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::model::ThemeSettings;
+use super::model::{Backdrop, ThemeSettings};
 use super::registry::Palette;
 
 /// Builds CSS tokens from the palette and user preferences.
@@ -11,7 +11,15 @@ pub fn build(
 ) -> BTreeMap<String, String> {
     let mut tokens = BTreeMap::new();
 
-    tokens.insert("--color-bg".into(), palette.bg.into());
+    // With the Solid backdrop there is no material behind the window, so the
+    // page background must be fully opaque. The translucent palette color is
+    // only correct over Mica/Acrylic.
+    let background = if settings.backdrop == Backdrop::Solid {
+        palette.bg_solid
+    } else {
+        palette.bg
+    };
+    tokens.insert("--color-bg".into(), background.into());
     tokens.insert("--color-bg-elevated".into(), palette.bg_elevated.into());
     tokens.insert("--color-bg-solid".into(), palette.bg_solid.into());
     tokens.insert("--color-fg".into(), palette.fg.into());
@@ -41,9 +49,11 @@ pub fn build(
     tokens.insert("--motion-fast".into(), motion.into());
     tokens.insert("--motion-normal".into(), motion.into());
 
+    // YouTube's own typeface, bundled with the launcher, so the pages match
+    // the site instead of the Windows system font.
     tokens.insert(
         "--font-family".into(),
-        "\"Segoe UI Variable Text\", \"Segoe UI\", system-ui, sans-serif".into(),
+        "\"Roboto\", \"Segoe UI\", Arial, sans-serif".into(),
     );
     tokens.insert("--font-size-base".into(), "14px".into());
     tokens.insert(

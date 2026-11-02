@@ -8,6 +8,7 @@ use crate::core::paths::AppPaths;
 use crate::extensions::ExtensionService;
 use crate::history::HistoryRepository;
 use crate::player::WatchTracker;
+use crate::player::PlayerSnapshot;
 use crate::rpc::RpcService;
 use crate::settings::SettingsStore;
 
@@ -22,6 +23,11 @@ pub struct AppState {
     /// Whether the YouTube webview is currently visible. Tracked so a webview
     /// rebuilt after an extension change keeps the right visibility.
     pub youtube_visible: AtomicBool,
+    /// Whether the YouTube page is still loading. The webview stays hidden
+    /// until it is ready, so the launcher can show a loading state.
+    pub youtube_loading: AtomicBool,
+    /// Last state reported by the YouTube player, used by picture-in-picture.
+    pub last_player: Mutex<Option<PlayerSnapshot>>,
 }
 
 impl AppState {
@@ -41,6 +47,8 @@ impl AppState {
             history,
             watch: Mutex::new(WatchTracker::default()),
             youtube_visible: AtomicBool::new(true),
+            youtube_loading: AtomicBool::new(true),
+            last_player: Mutex::new(None),
         })
     }
 }

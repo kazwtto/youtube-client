@@ -28,7 +28,13 @@ pub fn settings_update(
             .settings
             .write()
             .map_err(|_| AppError::State("settings unavailable".into()))?;
-        store.replace(settings)?
+
+        // Window geometry is owned by the window event handler, never by the
+        // settings form. Preserve the value the app has already remembered,
+        // otherwise an auto-save made after a resize could roll it back.
+        let mut incoming = settings;
+        incoming.window = store.snapshot().window;
+        store.replace(incoming)?
     };
 
     let system_dark = matches!(window.theme(), Ok(tauri::Theme::Dark));

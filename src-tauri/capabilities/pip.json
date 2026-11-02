@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "pip",
+  "description": "Permissions for the picture-in-picture window.",
+  "windows": [
+    "pip"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-minimize",
+    "allow-pip-close",
+    "allow-pip-next",
+    "allow-pip-current",
+    "allow-pip-restore",
+    "allow-pip-set-ratio",
+    "allow-pip-drag-start",
+    "allow-pip-move-by",
+    "allow-pip-drag-end",
+    "allow-pip-sync-time"
+  ]
+}

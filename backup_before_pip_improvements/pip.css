@@ -1,0 +1,197 @@
+:root {
+  color-scheme: dark;
+
+  --pip-fg: #f1f1f1;
+  --pip-focus: #3ea6ff;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000000;
+  scrollbar-width: none;
+  color: var(--pip-fg);
+  font-family: "Roboto", "Segoe UI", Arial, sans-serif;
+  font-size: 13px;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The window is the video: everything else is invisible chrome. */
+
+#pip-root,
+.pip__frame {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: #000000;
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.pip__video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #000000;
+}
+
+/* The window has no title bar and a press inside the embedded player cannot
+   start the native window drag, so this surface owns the drag. It leaves the
+   bottom band free for the player controls and for the window buttons. */
+
+.pip__grab {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 58px;
+  left: 0;
+  z-index: 5;
+}
+
+/* Resize edges, drawn as thin invisible strips */
+
+.pip__resize {
+  position: absolute;
+  z-index: 6;
+}
+
+.pip__resize--north {
+  top: 0;
+  right: 12px;
+  left: 12px;
+  height: 3px;
+  cursor: ns-resize;
+}
+
+.pip__resize--south {
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  height: 3px;
+  cursor: ns-resize;
+}
+
+.pip__resize--west {
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 3px;
+  cursor: ew-resize;
+}
+
+.pip__resize--east {
+  top: 12px;
+  right: 0;
+  bottom: 12px;
+  width: 3px;
+  cursor: ew-resize;
+}
+
+.pip__resize--northeast {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nesw-resize;
+}
+
+.pip__resize--northwest {
+  top: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+}
+
+.pip__resize--southeast {
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+}
+
+.pip__resize--southwest {
+  bottom: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nesw-resize;
+}
+
+/* Loading: the frame takes a moment to answer, and a black rectangle in the
+   meantime looks like a broken window. */
+
+.pip__loading {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  inset: 0;
+  background: #000000;
+}
+
+.pip__spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: pip-spin 800ms linear infinite;
+}
+
+@keyframes pip-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pip__frame.is-ready .pip__loading {
+  display: none;
+}
+
+/* Nothing to play */
+
+.pip__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  padding: 16px;
+  background: #0f0f0f;
+  text-align: center;
+  cursor: grab;
+}
+
+.pip__empty:active {
+  cursor: grabbing;
+}
+
+.pip__empty-icon {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 2px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.pip__empty-title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.pip__empty-hint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 12px;
+  line-height: 16px;
+}

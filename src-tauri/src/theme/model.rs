@@ -42,7 +42,7 @@ impl Default for ThemeSettings {
             theme_id: "fluent".to_string(),
             mode: ThemeMode::System,
             backdrop: Backdrop::Mica,
-            accent: "#0a84ff".to_string(),
+            accent: "#ff0033".to_string(),
             radius: 8,
             motion: true,
         }

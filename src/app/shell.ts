@@ -2,13 +2,17 @@ import { listen } from "@tauri-apps/api/event";
 
 import { createTitlebar } from "../components/titlebar";
 import { t } from "../i18n";
-import { api, type RpcStatus } from "../lib/api";
+import { api, type AppSettings, type RpcStatus } from "../lib/api";
 import { renderExtensions } from "../pages/extensions";
 import { renderHistory } from "../pages/history";
 import { renderHome } from "../pages/home";
 import { renderRpc } from "../pages/rpc";
 import { renderSettings } from "../pages/settings";
 import { Router, type RouteId } from "./router";
+
+/// A page that has not loaded after this long is treated as a failure, which is
+/// the only moment the retry action is offered.
+const LOAD_FAILED_MS = 30_000;
 
 export function createShell(root: HTMLElement): void {
   root.replaceChildren();
@@ -18,6 +22,20 @@ export function createShell(root: HTMLElement): void {
 
   const content = document.createElement("main");
   content.className = "content";
+
+  const loading = document.createElement("div");
+  loading.className = "yt-loading";
+  loading.hidden = true;
+  loading.innerHTML = `
+    <div class="yt-loading__inner" role="status" aria-live="polite">
+      <span class="yt-loading__spinner" aria-hidden="true"></span>
+      <p class="yt-loading__label" data-state="loading">${t("youtube.loading")}</p>
+      <p class="yt-loading__label" data-state="failed" hidden>${t("youtube.failed")}</p>
+      <button type="button" class="yt-button yt-button--filled yt-loading__retry" hidden>
+        ${t("youtube.retry")}
+      </button>
+    </div>
+  `;
 
   const router = new Router(content);
   router
@@ -41,12 +59,78 @@ export function createShell(root: HTMLElement): void {
 
   const titlebar = createTitlebar({ onNavigate: navigate });
 
-  shell.append(titlebar.element, content);
+  shell.append(titlebar.element, content, loading);
   root.append(shell);
 
+  let youtubeLoading = true;
+  let slowTimer: number | undefined;
+  let currentRoute: RouteId = "home";
+
+  const label = loading.querySelector<HTMLElement>('[data-state="loading"]')!;
+  const failed = loading.querySelector<HTMLElement>('[data-state="failed"]')!;
+  const retry = loading.querySelector<HTMLButtonElement>(".yt-loading__retry")!;
+
+  const syncLoading = (): void => {
+    const visible = currentRoute === "home" && youtubeLoading;
+    loading.hidden = !visible;
+
+    if (slowTimer !== undefined) {
+      window.clearTimeout(slowTimer);
+      slowTimer = undefined;
+    }
+
+    if (!visible) {
+      label.hidden = false;
+      failed.hidden = true;
+      retry.hidden = true;
+      return;
+    }
+
+    // Only a load that never finishes offers a retry; a normal load just shows
+    // the spinner until the page is ready.
+    slowTimer = window.setTimeout(() => {
+      label.hidden = true;
+      failed.hidden = false;
+      retry.hidden = false;
+    }, LOAD_FAILED_MS);
+  };
+
+  retry.addEventListener("click", () => {
+    youtubeLoading = true;
+    syncLoading();
+    void api.ytNavigate("reload");
+  });
+
+  void api
+    .settingsGet()
+    .then((settings: AppSettings) => titlebar.setStyle(settings.general.titlebarStyle))
+    .catch(() => undefined);
+
+  void listen<AppSettings>("settings://changed", (event) => {
+    titlebar.setStyle(event.payload.general.titlebarStyle);
+  }).catch(() => undefined);
+
+  void listen<boolean>("youtube://loading", (event) => {
+    youtubeLoading = event.payload;
+    syncLoading();
+  }).catch((error) => {
+    console.warn(t("shell.loadingEventsError", { error: String(error) }));
+  });
+
   router.onNavigate(async (route) => {
+    currentRoute = route.id;
     titlebar.setActive(route.id);
-    await setYoutubeVisible(route.id === "home");
+    syncLoading();
+
+    if (route.id === "home") {
+      // Show the site first and hide the local page right after, so the window
+      // never paints an empty frame between the two.
+      await setYoutubeVisible(true);
+      content.dataset.youtube = "true";
+    } else {
+      content.dataset.youtube = "false";
+      await setYoutubeVisible(false);
+    }
   });
 
   void api

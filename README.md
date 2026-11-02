@@ -110,7 +110,10 @@ The theme system has three layers:
 3. **Application**: CSS tokens in the UI, `Mica`/`Acrylic`/`Solid` on the native
    window, and the same palette mapped onto YouTube's own design tokens in the
    `yt` webview through `injected/theme.js`. Theme changes apply to the launcher
-   and to YouTube, and following the system re-applies on theme changes.
+   and to YouTube, and following the system re-applies on theme changes. When
+   `Mica` or `Acrylic` is selected (and supported by the OS), the `yt` webview
+   is transparent and its structural surfaces become translucent, so the native
+   material is visible behind the site; `Solid` keeps the page opaque.
 
 Built-in themes: `fluent` and `high-contrast`. The UI uses the variables
 `--color-bg`, `--color-fg`, `--color-accent`, `--radius-*`, and `--motion-*`.

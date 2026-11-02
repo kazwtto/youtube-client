@@ -18,6 +18,22 @@ pub fn player_snapshot(
 ) -> AppResult<RpcStatus> {
     let _ = window.app_handle().emit(events::PLAYER_UPDATE, &snapshot);
 
+    let track_changed = if let Ok(mut last) = state.last_player.lock() {
+        let changed = last.as_ref().and_then(|value| value.video_id.clone()) != snapshot.video_id
+            || last.as_ref().and_then(|value| value.title.clone()) != snapshot.title;
+        *last = Some(snapshot.clone());
+        changed
+    } else {
+        false
+    };
+
+    // Keeps an open mini player on the video the main window is on.
+    if track_changed {
+        if let Some(pip) = window.app_handle().get_webview_window("pip") {
+            let _ = pip.emit("pip://player", snapshot.clone());
+        }
+    }
+
     let settings = state
         .settings
         .read()

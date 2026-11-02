@@ -32,12 +32,36 @@ export interface ExtensionSettings {
   disabled: string[];
 }
 
+export type TitlebarStyle = "tabs" | "icons";
+
 export interface GeneralSettings {
   language: string;
   hardwareAcceleration: boolean;
+  titlebarStyle: TitlebarStyle;
+  pipOnMinimize: boolean;
+  pipOnBlur: boolean;
+}
+
+export interface WindowSettings {
+  width: number;
+  height: number;
+  maximized: boolean;
+}
+
+export type PipMode = "custom" | "native";
+
+export interface PipSettings {
+  enabled: boolean;
+  mode: PipMode;
+  width: number;
+  height: number;
+  x?: number | null;
+  y?: number | null;
 }
 
 export interface AppSettings {
+  window: WindowSettings;
+  pip: PipSettings;
   theme: ThemeSettings;
   rpc: RpcSettings;
   history: HistorySettings;
@@ -104,6 +128,13 @@ export const api = {
 
   ytNavigate: (action: NavigationAction): Promise<void> =>
     invoke<void>("yt_navigate", { action }),
+
+  ytPlayVideo: (videoId: string): Promise<void> =>
+    invoke<void>("yt_play_video", { videoId }),
+
+  pipOpen: (): Promise<void> => invoke<void>("pip_open"),
+
+  pipClose: (): Promise<void> => invoke<void>("pip_close"),
 
   themeList: (): Promise<ThemeSummary[]> => invoke<ThemeSummary[]>("theme_list"),
 

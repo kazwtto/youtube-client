@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { defineConfig } from "vite";
 
 // Fixed port to match `devUrl` in tauri.conf.json.
@@ -18,6 +20,14 @@ export default defineConfig({
       : undefined,
     watch: {
       ignored: ["**/src-tauri/**"],
+    },
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        pip: resolve(__dirname, "pip.html"),
+      },
     },
   },
 });

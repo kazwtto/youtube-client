@@ -1,3 +1,49 @@
+// Launcher icons (SVGs imported directly from src/assets/icons/launcher/)
+import backSvg from "../assets/icons/launcher/back.svg?raw";
+import checkSvg from "../assets/icons/launcher/check.svg?raw";
+import chevronSvg from "../assets/icons/launcher/chevron.svg?raw";
+import clockSvg from "../assets/icons/launcher/clock.svg?raw";
+import closeSvg from "../assets/icons/launcher/close.svg?raw";
+import copySvg from "../assets/icons/launcher/copy.svg?raw";
+import discordSvg from "../assets/icons/launcher/discord.svg?raw";
+import extensionsSvg from "../assets/icons/launcher/extensions.svg?raw";
+import folderSvg from "../assets/icons/launcher/folder.svg?raw";
+import forwardSvg from "../assets/icons/launcher/forward.svg?raw";
+import gridSvg from "../assets/icons/launcher/grid.svg?raw";
+import historySvg from "../assets/icons/launcher/history.svg?raw";
+import homeSvg from "../assets/icons/launcher/home.svg?raw";
+import listSvg from "../assets/icons/launcher/list.svg?raw";
+import maximizeSvg from "../assets/icons/launcher/maximize.svg?raw";
+import minimizeSvg from "../assets/icons/launcher/minimize.svg?raw";
+import moreSvg from "../assets/icons/launcher/more.svg?raw";
+import paletteSvg from "../assets/icons/launcher/palette.svg?raw";
+import pipScreenSvg from "../assets/icons/launcher/pip-screen.svg?raw";
+import pipSvg from "../assets/icons/launcher/pip.svg?raw";
+import playSvg from "../assets/icons/launcher/play.svg?raw";
+import plusSvg from "../assets/icons/launcher/plus.svg?raw";
+import reloadSvg from "../assets/icons/launcher/reload.svg?raw";
+import restoreSvg from "../assets/icons/launcher/restore.svg?raw";
+import searchSvg from "../assets/icons/launcher/search.svg?raw";
+import settingsSvg from "../assets/icons/launcher/settings.svg?raw";
+import trashSvg from "../assets/icons/launcher/trash.svg?raw";
+
+// YouTube icons (SVGs imported directly from src/assets/icons/youtube/)
+import ytAccountSvg from "../assets/icons/youtube/account.svg?raw";
+import ytBrandSvg from "../assets/icons/youtube/brand.svg?raw";
+import ytClearSvg from "../assets/icons/youtube/clear.svg?raw";
+import ytGuideSvg from "../assets/icons/youtube/guide.svg?raw";
+import ytHelpSvg from "../assets/icons/youtube/help.svg?raw";
+import ytHistorySvg from "../assets/icons/youtube/history.svg?raw";
+import ytLogoutSvg from "../assets/icons/youtube/logout.svg?raw";
+import ytMoreSvg from "../assets/icons/youtube/more.svg?raw";
+import ytPurchasesSvg from "../assets/icons/youtube/purchases.svg?raw";
+import ytSearchSvg from "../assets/icons/youtube/search.svg?raw";
+import ytShortcutsSvg from "../assets/icons/youtube/shortcuts.svg?raw";
+import ytStudioSvg from "../assets/icons/youtube/studio.svg?raw";
+import ytSwitchAccountSvg from "../assets/icons/youtube/switch-account.svg?raw";
+import ytVoiceSvg from "../assets/icons/youtube/voice.svg?raw";
+import ytYourDataSvg from "../assets/icons/youtube/your-data.svg?raw";
+
 export type IconName =
   | "back"
   | "forward"
@@ -12,27 +58,143 @@ export type IconName =
   | "maximize"
   | "restore"
   | "pip"
-  | "close";
+  | "close"
+  | "chevron"
+  | "check"
+  | "trash"
+  | "plus"
+  | "folder"
+  | "search"
+  | "clock"
+  | "play"
+  | "more"
+  | "list"
+  | "grid"
+  | "copy"
+  | "pip-screen";
 
-/// Inline, stroke-based vector icons. The markup inherits `currentColor`, so
-/// icons follow the active theme without per-icon styles.
-const PATHS: Record<IconName, string> = {
-  back: `<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>`,
-  forward: `<path d="M5 12h14"/><path d="M12 5l7 7-7 7"/>`,
-  reload: `<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>`,
-  home: `<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>`,
-  history: `<path d="M3 12a9 9 0 1 0 2.64-6.36L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>`,
-  extensions: `<path d="M19.44 7.85c-.05.32.06.65.29.88l1.57 1.57c.47.47.7 1.08.7 1.7s-.23 1.23-.7 1.7l-1.61 1.61a.98.98 0 0 1-.84.28c-.47-.07-.8-.48-.97-.93a2.5 2.5 0 1 0-3.21 3.21c.45.17.86.5.93.97a.98.98 0 0 1-.28.84l-1.61 1.61a2.4 2.4 0 0 1-1.7.71 2.4 2.4 0 0 1-1.7-.71l-1.57-1.57a1.03 1.03 0 0 0-.88-.29c-.49.07-.84.5-1.02.97a2.5 2.5 0 1 1-3.24-3.24c.47-.18.9-.53.97-1.02a1.03 1.03 0 0 0-.29-.88L2.7 13.7a2.4 2.4 0 0 1-.7-1.7c0-.62.24-1.23.7-1.7L4.23 8.77c.24-.24.58-.35.92-.3.51.08.88.53 1.07 1.01a2.5 2.5 0 1 0 3.26-3.26c-.48-.19-.93-.56-1.01-1.07-.05-.34.06-.68.3-.92L10.3 2.7a2.4 2.4 0 0 1 1.7-.7c.62 0 1.23.24 1.7.7l1.57 1.57c.23.23.56.34.88.29.49-.07.84-.5 1.02-.97a2.5 2.5 0 1 1 3.24 3.24c-.47.18-.9.53-.97 1.02Z"/>`,
-  discord: `<path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.058a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" fill="currentColor" stroke="none"/>`,
-  palette: `<circle cx="13.5" cy="6.5" r="1" fill="currentColor" stroke="none"/><circle cx="17.5" cy="10.5" r="1" fill="currentColor" stroke="none"/><circle cx="8.5" cy="7.5" r="1" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12.5" r="1" fill="currentColor" stroke="none"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>`,
-  settings: `<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>`,
-  minimize: `<path d="M5 12h14"/>`,
-  maximize: `<rect x="5" y="5" width="14" height="14" rx="1.5"/>`,
-  restore: `<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>`,
-  pip: `<rect x="3" y="4" width="18" height="16" rx="2.5"/><rect x="12" y="12" width="7" height="6" rx="1.4" fill="currentColor" stroke="none"/>`,
-  close: `<path d="M6 6l12 12"/><path d="M18 6 6 18"/>`,
+export type YoutubeIconName =
+  | "brand"
+  | "guide"
+  | "search"
+  | "voice"
+  | "clear"
+  | "account"
+  | "more"
+  | "history"
+  | "studio"
+  | "switch-account"
+  | "logout"
+  | "purchases"
+  | "your-data"
+  | "shortcuts"
+  | "help";
+
+const LAUNCHER_ICONS: Record<IconName, string> = {
+  back: backSvg,
+  forward: forwardSvg,
+  reload: reloadSvg,
+  home: homeSvg,
+  history: historySvg,
+  extensions: extensionsSvg,
+  discord: discordSvg,
+  settings: settingsSvg,
+  palette: paletteSvg,
+  minimize: minimizeSvg,
+  maximize: maximizeSvg,
+  restore: restoreSvg,
+  pip: pipSvg,
+  close: closeSvg,
+  chevron: chevronSvg,
+  check: checkSvg,
+  trash: trashSvg,
+  plus: plusSvg,
+  folder: folderSvg,
+  search: searchSvg,
+  clock: clockSvg,
+  play: playSvg,
+  more: moreSvg,
+  list: listSvg,
+  grid: gridSvg,
+  copy: copySvg,
+  "pip-screen": pipScreenSvg,
 };
 
-export function icon(name: IconName, size = 16): string {
-  return `<svg class="icon" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${PATHS[name]}</svg>`;
+const YOUTUBE_ICONS: Record<YoutubeIconName, string> = {
+  brand: ytBrandSvg,
+  guide: ytGuideSvg,
+  search: ytSearchSvg,
+  voice: ytVoiceSvg,
+  clear: ytClearSvg,
+  account: ytAccountSvg,
+  more: ytMoreSvg,
+  history: ytHistorySvg,
+  studio: ytStudioSvg,
+  "switch-account": ytSwitchAccountSvg,
+  logout: ytLogoutSvg,
+  purchases: ytPurchasesSvg,
+  "your-data": ytYourDataSvg,
+  shortcuts: ytShortcutsSvg,
+  help: ytHelpSvg,
+};
+
+function applySvgAttributes(
+  rawSvg: string,
+  options?: { size?: number; className?: string; style?: string },
+): string {
+  let svg = rawSvg.trim();
+
+  if (options?.className) {
+    if (/class="[^"]*"/.test(svg)) {
+      svg = svg.replace(/class="[^"]*"/, `class="${options.className}"`);
+    } else {
+      svg = svg.replace("<svg", `<svg class="${options.className}"`);
+    }
+  }
+
+  if (options?.size !== undefined) {
+    if (/width="[^"]*"/.test(svg)) {
+      svg = svg.replace(/width="[^"]*"/, `width="${options.size}"`);
+    } else {
+      svg = svg.replace("<svg", `<svg width="${options.size}"`);
+    }
+    if (/height="[^"]*"/.test(svg)) {
+      svg = svg.replace(/height="[^"]*"/, `height="${options.size}"`);
+    } else {
+      svg = svg.replace("<svg", `<svg height="${options.size}"`);
+    }
+  }
+
+  if (options?.style) {
+    if (/style="[^"]*"/.test(svg)) {
+      svg = svg.replace(/style="[^"]*"/, `style="${options.style}"`);
+    } else {
+      svg = svg.replace("<svg", `<svg style="${options.style}"`);
+    }
+  }
+
+  return svg;
+}
+
+/// Dedicated component helper for launcher vector icons.
+export function icon(name: IconName, size = 16, className = "icon"): string {
+  const raw = LAUNCHER_ICONS[name];
+  if (!raw) {
+    return "";
+  }
+  return applySvgAttributes(raw, { size, className });
+}
+
+/// Dedicated component helper for authentic YouTube masthead and menu icons.
+export function ytIcon(
+  name: YoutubeIconName,
+  size = 20,
+  className?: string,
+  style?: string,
+): string {
+  const raw = YOUTUBE_ICONS[name];
+  if (!raw) {
+    return "";
+  }
+  return applySvgAttributes(raw, { size, className, style });
 }

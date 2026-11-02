@@ -662,11 +662,17 @@
   background: rgba(255, 255, 255, 0.08);
   color: var(--color-fg);
   cursor: pointer;
+  outline: none;
   transition: background var(--motion-fast) ease;
 }
 
 .titlebar__search-submit:hover {
   background: rgba(255, 255, 255, 0.15);
+}
+
+.titlebar__search-submit:focus,
+.titlebar__search-submit:focus-visible {
+  outline: none;
 }
 
 .titlebar__voice-button {
@@ -682,11 +688,17 @@
   cursor: pointer;
   flex-shrink: 0;
   margin-left: 6px;
+  outline: none;
   transition: background var(--motion-fast) ease;
 }
 
 .titlebar__voice-button:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+.titlebar__voice-button:focus,
+.titlebar__voice-button:focus-visible {
+  outline: none;
 }
 
 .titlebar__search-suggestions {

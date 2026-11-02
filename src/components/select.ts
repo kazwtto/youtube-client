@@ -1,5 +1,4 @@
-const CHEVRON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
-const CHECK = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>`;
+import { icon } from "./icons";
 
 export interface SelectEnhancer {
   /// Copies the current native value into the visible control.
@@ -18,7 +17,7 @@ export function enhanceSelect(select: HTMLSelectElement): SelectEnhancer {
   button.className = "yt-dropdown__button";
   button.setAttribute("aria-haspopup", "listbox");
   button.setAttribute("aria-expanded", "false");
-  button.innerHTML = `<span class="yt-dropdown__value"></span>${CHEVRON}`;
+  button.innerHTML = `<span class="yt-dropdown__value"></span>${icon("chevron", 18)}`;
 
   const menu = document.createElement("div");
   menu.className = "yt-dropdown__menu";
@@ -33,7 +32,7 @@ export function enhanceSelect(select: HTMLSelectElement): SelectEnhancer {
     item.className = "yt-dropdown__option";
     item.dataset.value = option.value;
     item.setAttribute("role", "option");
-    item.innerHTML = `<span class="yt-dropdown__option-label"></span><span class="yt-dropdown__check">${CHECK}</span>`;
+    item.innerHTML = `<span class="yt-dropdown__option-label"></span><span class="yt-dropdown__check">${icon("check", 16)}</span>`;
     item.querySelector<HTMLElement>(".yt-dropdown__option-label")!.textContent = option.label;
 
     item.addEventListener("click", () => {

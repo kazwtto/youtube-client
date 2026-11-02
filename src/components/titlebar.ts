@@ -4,7 +4,7 @@ import type { RouteId } from "../app/router";
 import { t, type TranslationKey } from "../i18n";
 import { api, type AuthSnapshot, type RpcStatus, type TitlebarStyle } from "../lib/api";
 import { escapeHtml } from "../lib/html";
-import { icon, type IconName } from "./icons";
+import { icon, ytIcon, type IconName } from "./icons";
 
 export interface TitlebarActions {
   /// Navigates the local interface to a route.
@@ -110,18 +110,11 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       aria-label="${t("titlebar.guide")}"
       hidden
     >
-      <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 0 24 24" width="20" focusable="false" style="pointer-events: none; display: inherit;">
-        <path d="M20 5H4a1 1 0 000 2h16a1 1 0 100-2Zm0 6H4a1 1 0 000 2h16a1 1 0 000-2Zm0 6H4a1 1 0 000 2h16a1 1 0 000-2Z" fill="currentColor"></path>
-      </svg>
+      ${ytIcon("guide", 20, undefined, "pointer-events: none; display: inherit;")}
     </button>
 
-    <div class="titlebar__brand" data-tauri-drag-region>
-      <svg xmlns="http://www.w3.org/2000/svg" class="external-icon" viewBox="0 0 28.57 20" focusable="false" style="pointer-events: none; display: block; width: 28px; height: 20px;">
-        <g>
-          <path d="M27.9727 3.12324C27.6435 1.89323 26.6768 0.926623 25.4468 0.597366C23.2197 2.24288e-07 14.285 0 14.285 0C14.285 0 5.35042 2.24288e-07 3.12323 0.597366C1.89323 0.926623 0.926623 1.89323 0.597366 3.12324C2.24288e-07 5.35042 0 10 0 10C0 10 2.24288e-07 14.6496 0.597366 16.8768C0.926623 18.1068 1.89323 19.0734 3.12323 19.4026C5.35042 20 14.285 20 14.285 20C14.285 20 23.2197 20 25.4468 19.4026C26.6768 19.0734 27.6435 18.1068 27.9727 16.8768C28.5701 14.6496 28.5701 10 28.5701 10C28.5701 10 28.5677 5.35042 27.9727 3.12324Z" fill="#FF0000"></path>
-          <path d="M11.4253 14.2854L18.8477 10.0004L11.4253 5.71533V14.2854Z" fill="white"></path>
-        </g>
-      </svg>
+    <div class="titlebar__brand" style="display: none" data-tauri-drag-region>
+      ${ytIcon("brand", undefined, "external-icon", "pointer-events: none; display: block; width: 28px; height: 20px;")}
     </div>
 
     <div class="titlebar__group" role="group" aria-label="${t("titlebar.youtubeNavigation")}">
@@ -152,7 +145,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
             aria-label="${t("titlebar.clearSearch")}"
             hidden
           >
-            <svg viewBox="0 0 24 24" width="18" height="18" focusable="false" style="pointer-events: none;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"></path></svg>
+            ${ytIcon("clear", 18, undefined, "pointer-events: none;")}
           </button>
         </div>
         <button
@@ -161,9 +154,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
           title="${t("titlebar.search")}"
           aria-label="${t("titlebar.search")}"
         >
-          <svg viewBox="0 0 24 24" width="20" height="20" focusable="false" aria-hidden="true" style="pointer-events: none; display: inherit;">
-            <path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z" fill="currentColor"></path>
-          </svg>
+          ${ytIcon("search", 20, undefined, "pointer-events: none; display: inherit;")}
         </button>
       </div>
       <button
@@ -173,9 +164,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         aria-label="${t("titlebar.voiceSearch")}"
         data-action="voice"
       >
-        <svg viewBox="0 0 24 24" width="20" height="20" focusable="false" aria-hidden="true" style="pointer-events: none; display: inherit;">
-          <path d="M18.063 14.5a1 1 0 111.73 1A8.998 8.998 0 0113 19.942V22a1 1 0 11-2 0v-2.058A8.999 8.999 0 014.206 15.5l.866-.5.865-.5a7.002 7.002 0 0012.125 0ZM12 1a5 5 0 015 5v5a5 5 0 01-10 0V6a5 5 0 015-5ZM4.572 14.134a1 1 0 011.365.366l-1.731 1a1 1 0 01.366-1.366ZM12 3a3 3 0 00-3 3v5a3 3 0 106 0V6a3 3 0 00-3-3Z" fill="currentColor"></path>
-        </svg>
+        ${ytIcon("voice", 20, undefined, "pointer-events: none; display: inherit;")}
       </button>
       <div class="titlebar__search-suggestions" hidden></div>
     </div>
@@ -193,9 +182,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         data-action="toggle-auth-menu"
         title="${t("titlebar.login")}"
       >
-        <svg viewBox="0 0 24 24" width="20" height="20" focusable="false" aria-hidden="true" style="pointer-events: none; display: inherit;">
-          <path d="M12 1C5.925 1 1 5.925 1 12s4.925 11 11 11 11-4.925 11-11S18.075 1 12 1Zm0 2a9 9 0 016.447 15.276 7 7 0 00-12.895 0A9 9 0 0112 3Zm0 2a4 4 0 100 8 4 4 0 000-8Zm0 2a2 2 0 110 4 2 2 0 010-4Zm-.1 9.001L11.899 16a5 5 0 014.904 3.61A8.96 8.96 0 0112 21a8.96 8.96 0 01-4.804-1.391 5 5 0 014.704-3.608Z" fill="currentColor"></path>
-        </svg>
+        ${ytIcon("account", 20, undefined, "pointer-events: none; display: inherit;")}
         <span class="titlebar__login-label">${t("titlebar.login")}</span>
       </button>
 
@@ -206,9 +193,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         title="Mais opções"
         aria-label="Mais opções"
       >
-        <svg viewBox="0 0 24 24" width="20" height="20" focusable="false" aria-hidden="true" style="pointer-events: none; display: inherit;">
-          <path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z" fill="currentColor"></path>
-        </svg>
+        ${ytIcon("more", 20, undefined, "pointer-events: none; display: inherit;")}
       </button>
 
       <button
@@ -303,19 +288,17 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       .map(
         (item, idx) => `
         <div class="titlebar__suggestion-item ${item.isHistory ? "titlebar__suggestion-item--history" : ""}" data-index="${idx}" data-query="${escapeHtml(item.text)}">
-          <svg viewBox="0 0 24 24" width="18" height="18" class="titlebar__suggestion-icon" focusable="false" style="pointer-events: none;">
-            ${
-              item.isHistory
-                ? '<path d="M14.97 16.95L10 13.87V7h2v5.76l4.03 2.49-1.06 1.7zM12 3c-4.96 0-9 4.04-9 9s4.04 9 9 9 9-4.04 9-9-4.04-9-9-9m0-1c5.52 0 10 4.48 10 10s-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z" fill="currentColor"></path>'
-                : '<path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z" fill="currentColor"></path>'
-            }
-          </svg>
+          ${
+            item.isHistory
+              ? ytIcon("history", 18, "titlebar__suggestion-icon", "pointer-events: none;")
+              : ytIcon("search", 18, "titlebar__suggestion-icon", "pointer-events: none;")
+          }
           <span class="titlebar__suggestion-text">${escapeHtml(item.text)}</span>
           ${
             item.isHistory
               ? `
               <button type="button" class="titlebar__suggestion-remove" data-remove-query="${escapeHtml(item.text)}" title="Remover do histórico" aria-label="Remover">
-                <svg viewBox="0 0 24 24" width="16" height="16" style="pointer-events: none;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"></path></svg>
+                ${ytIcon("clear", 16, undefined, "pointer-events: none;")}
               </button>`
               : ""
           }
@@ -473,33 +456,33 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
       contextBody.innerHTML = `
         <button type="button" class="yt-context-menu__item" data-menu-action="channel">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 1C5.925 1 1 5.925 1 12s4.925 11 11 11 11-4.925 11-11S18.075 1 12 1Zm0 2a9 9 0 016.447 15.276 7 7 0 00-12.895 0A9 9 0 0112 3Zm0 2a4 4 0 100 8 4 4 0 000-8Zm0 2a2 2 0 110 4 2 2 0 010-4Zm-.1 9.001L11.899 16a5 5 0 014.904 3.61A8.96 8.96 0 0112 21a8.96 8.96 0 01-4.804-1.391 5 5 0 014.704-3.608Z" fill="currentColor"></path></svg>
+          ${ytIcon("account", 20)}
           <span>Seu canal</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="studio">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="m10 15 5-3-5-3v6zm11-12H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z" fill="currentColor"></path></svg>
+          ${ytIcon("studio", 20)}
           <span>YouTube Studio</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="switch-account">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z" fill="currentColor"></path></svg>
+          ${ytIcon("switch-account", 20)}
           <span>Alternar conta</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="logout">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" fill="currentColor"></path></svg>
+          ${ytIcon("logout", 20)}
           <span>Sair</span>
         </button>
         <div class="yt-context-menu__divider"></div>
         <button type="button" class="yt-context-menu__item" data-menu-action="purchases">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6h-2c0-2.76-2.24-5-5-5S7 3.24 7 6H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7-3c1.66 0 3 1.34 3 3H9c0-1.66 1.34-3 3-3zm7 17H5V8h14v12z" fill="currentColor"></path></svg>
+          ${ytIcon("purchases", 20)}
           <span>Compras e assinaturas</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="your-data">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"></path></svg>
+          ${ytIcon("your-data", 20)}
           <span>Seus dados no YouTube</span>
         </button>
         <div class="yt-context-menu__divider"></div>
         <button type="button" class="yt-context-menu__item" data-menu-action="shortcuts">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z" fill="currentColor"></path></svg>
+          ${ytIcon("shortcuts", 20)}
           <span>Teclas de atalho</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="settings-app">
@@ -511,16 +494,16 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       contextHeader.hidden = true;
       contextBody.innerHTML = `
         <button type="button" class="yt-context-menu__item yt-context-menu__item--highlight" data-menu-action="login">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 1C5.925 1 1 5.925 1 12s4.925 11 11 11 11-4.925 11-11S18.075 1 12 1Zm0 2a9 9 0 016.447 15.276 7 7 0 00-12.895 0A9 9 0 0112 3Zm0 2a4 4 0 100 8 4 4 0 000-8Zm0 2a2 2 0 110 4 2 2 0 010-4Zm-.1 9.001L11.899 16a5 5 0 014.904 3.61A8.96 8.96 0 0112 21a8.96 8.96 0 01-4.804-1.391 5 5 0 014.704-3.608Z" fill="currentColor"></path></svg>
+          ${ytIcon("account", 20)}
           <span>Fazer login</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="your-data">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"></path></svg>
+          ${ytIcon("your-data", 20)}
           <span>Seus dados no YouTube</span>
         </button>
         <div class="yt-context-menu__divider"></div>
         <button type="button" class="yt-context-menu__item" data-menu-action="shortcuts">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z" fill="currentColor"></path></svg>
+          ${ytIcon("shortcuts", 20)}
           <span>Teclas de atalho</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="settings-app">
@@ -528,7 +511,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
           <span>Ajustes do aplicativo</span>
         </button>
         <button type="button" class="yt-context-menu__item" data-menu-action="help">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 16h-2v-2h2v2zm1.07-7.75l-.9.92C12.45 11.9 12 12.5 12 14h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.65z" fill="currentColor"></path></svg>
+          ${ytIcon("help", 20)}
           <span>Ajuda e feedback</span>
         </button>
       `;

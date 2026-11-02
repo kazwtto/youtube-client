@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import { icon } from "../components/icons";
+
 const VIDEO_ID = /^[A-Za-z0-9_-]{6,32}$/;
 
 /** Messages the buttons drawn inside the player frame send to this page. */
@@ -83,13 +85,11 @@ function mount(): void {
     }
   };
 
-  const emptyIcon = `<svg class="pip__empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="13" rx="2.5"/><path d="M9.5 20.5h5"/></svg>`;
-
   const renderEmpty = (): void => {
     root.innerHTML = `
       <div class="pip__frame">
         <div class="pip__empty" data-drag>
-          ${emptyIcon}
+          ${icon("pip-screen", 24, "pip__empty-icon")}
           <p class="pip__empty-title">Nada em reprodução</p>
           <p class="pip__empty-hint">Abra um vídeo no YouTube para usar o mini player.</p>
         </div>

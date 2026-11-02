@@ -1,17 +1,9 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 
+import { icon } from "../components/icons";
 import { getLocale, t } from "../i18n";
 import { api, type HistoryEntry } from "../lib/api";
 import { escapeHtml } from "../lib/html";
-
-const SEARCH_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>`;
-const CLOCK_ICON = `<svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
-const PLAY_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72L19 12 8 5.14Z"/></svg>`;
-const MORE_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>`;
-const TRASH_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>`;
-const LIST_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`;
-const GRID_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>`;
-const COPY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="13" height="13" x="9" y="9" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
 let menuAbort: AbortController | undefined;
 
@@ -80,13 +72,13 @@ export async function renderHistory(host: HTMLElement): Promise<void> {
           <p class="page__lead">${t("history.lead")}</p>
         </div>
         <button type="button" class="yt-button yt-button--danger" id="history-clear">
-          ${TRASH_ICON}<span>${t("history.clear")}</span>
+          ${icon("trash", 18)}<span>${t("history.clear")}</span>
         </button>
       </header>
 
       <div class="history-toolbar">
         <div class="yt-search">
-          ${SEARCH_ICON}
+          ${icon("search", 20)}
           <input
             type="search"
             id="history-search"
@@ -107,10 +99,10 @@ export async function renderHistory(host: HTMLElement): Promise<void> {
 
         <div class="history-view-toggle" role="group" aria-label="Modo de exibição">
           <button type="button" class="history-view-btn is-active" data-view="list" title="${t("history.viewList")}" aria-label="${t("history.viewList")}">
-            ${LIST_ICON}
+            ${icon("list", 18)}
           </button>
           <button type="button" class="history-view-btn" data-view="grid" title="${t("history.viewGrid")}" aria-label="${t("history.viewGrid")}">
-            ${GRID_ICON}
+            ${icon("grid", 18)}
           </button>
         </div>
       </div>
@@ -254,7 +246,7 @@ export async function renderHistory(host: HTMLElement): Promise<void> {
             : `<span class="history-item__image history-item__image--empty" aria-hidden="true"></span>`
         }
         ${duration ? `<span class="history-item__duration">${duration}</span>` : ""}
-        <span class="history-item__scrim" aria-hidden="true"><span>${PLAY_ICON}</span></span>
+        <span class="history-item__scrim" aria-hidden="true"><span>${icon("play", 22)}</span></span>
       </div>
       <div class="history-item__body">
         <h3 class="history-item__title">${escapeHtml(entry.title)}</h3>
@@ -268,16 +260,16 @@ export async function renderHistory(host: HTMLElement): Promise<void> {
           title="${t("history.more")}"
           aria-label="${t("history.more")}"
           aria-haspopup="menu"
-        >${MORE_ICON}</button>
+        >${icon("more", 20)}</button>
         <div class="history-menu" role="menu" hidden>
           <button type="button" class="history-menu__item" role="menuitem" data-play>
-            ${PLAY_ICON}<span>${t("history.play")}</span>
+            ${icon("play", 20)}<span>${t("history.play")}</span>
           </button>
           <button type="button" class="history-menu__item" role="menuitem" data-copy>
-            ${COPY_ICON}<span>${t("history.copyLink")}</span>
+            ${icon("copy", 18)}<span>${t("history.copyLink")}</span>
           </button>
           <button type="button" class="history-menu__item" role="menuitem" data-remove>
-            ${TRASH_ICON}<span>${t("history.removeFromHistory")}</span>
+            ${icon("trash", 18)}<span>${t("history.removeFromHistory")}</span>
           </button>
         </div>
       </div>
@@ -363,14 +355,14 @@ export async function renderHistory(host: HTMLElement): Promise<void> {
     list.innerHTML = query
       ? `
         <div class="yt-empty">
-          ${SEARCH_ICON}
+          ${icon("search", 20)}
           <p><strong>${t("history.noResults", { query: escapeHtml(query) })}</strong></p>
           <p>${t("history.noResultsHint")}</p>
         </div>
       `
       : `
         <div class="yt-empty">
-          ${CLOCK_ICON}
+          ${icon("clock", 56)}
           <p><strong>${t("history.empty")}</strong></p>
           <p>${t("history.emptyHint")}</p>
         </div>

@@ -1,13 +1,9 @@
 import { open } from "@tauri-apps/plugin-dialog";
 
+import { icon } from "../components/icons";
 import { t } from "../i18n";
 import { api, type ExtensionSummary } from "../lib/api";
 import { escapeHtml } from "../lib/html";
-
-const PUZZLE_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.44 7.85c-.05.32.06.65.29.88l1.57 1.57c.47.47.7 1.08.7 1.7s-.23 1.23-.7 1.7l-1.61 1.61a.98.98 0 0 1-.84.28c-.47-.07-.8-.48-.97-.93a2.5 2.5 0 1 0-3.21 3.21c.45.17.86.5.93.97a.98.98 0 0 1-.28.84l-1.61 1.61a2.4 2.4 0 0 1-1.7.71 2.4 2.4 0 0 1-1.7-.71l-1.57-1.57a1.03 1.03 0 0 0-.88-.29c-.49.07-.84.5-1.02.97a2.5 2.5 0 1 1-3.24-3.24c.47-.18.9-.53.97-1.02a1.03 1.03 0 0 0-.29-.88L2.7 13.7a2.4 2.4 0 0 1-.7-1.7c0-.62.24-1.23.7-1.7L4.23 8.77c.24-.24.58-.35.92-.3.51.08.88.53 1.07 1.01a2.5 2.5 0 1 0 3.26-3.26c-.48-.19-.93-.56-1.01-1.07-.05-.34.06-.68.3-.92L10.3 2.7a2.4 2.4 0 0 1 1.7-.7c.62 0 1.23.24 1.7.7l1.57 1.57c.23.23.56.34.88.29.49-.07.84-.5 1.02-.97a2.5 2.5 0 1 1 3.24 3.24c-.47.18-.9.53-.97 1.02Z"/>`;
-const TRASH_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>`;
-const PLUS_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
-const FOLDER_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.4h9A1.5 1.5 0 0 1 21 10v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18Z"/></svg>`;
 
 export async function renderExtensions(host: HTMLElement): Promise<void> {
   host.innerHTML = `
@@ -18,7 +14,7 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
           <p class="page__lead">${t("extensions.lead")}</p>
         </div>
         <button type="button" class="yt-button yt-button--tonal" id="extension-install">
-          ${PLUS_ICON}<span>${t("extensions.add")}</span>
+          ${icon("plus", 18)}<span>${t("extensions.add")}</span>
         </button>
       </header>
 
@@ -40,7 +36,7 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
             ${t("common.cancel")}
           </button>
           <button type="button" class="yt-button yt-button--filled" data-pick>
-            ${FOLDER_ICON}<span>${t("extensions.pickFolder")}</span>
+            ${icon("folder", 18)}<span>${t("extensions.pickFolder")}</span>
           </button>
         </div>
       </form>
@@ -77,7 +73,7 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
     if (extensions.length === 0) {
       list.innerHTML = `
         <div class="yt-empty yt-empty--compact">
-          ${PUZZLE_ICON}
+          ${icon("extensions", 22)}
           <p><strong>${t("extensions.empty")}</strong></p>
           <p>${t("extensions.emptyHint")}</p>
         </div>
@@ -108,7 +104,7 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
     const stateLabel = extension.enabled ? t("extensions.active") : t("extensions.inactive");
 
     element.innerHTML = `
-      <div class="extension-row__icon" aria-hidden="true">${PUZZLE_ICON}</div>
+      <div class="extension-row__icon" aria-hidden="true">${icon("extensions", 22)}</div>
       <div class="extension-row__body">
         <div class="extension-row__head">
           <h3>${escapeHtml(extension.name)}</h3>
@@ -142,7 +138,7 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
           data-remove
           title="${t("extensions.remove")}"
           aria-label="${t("extensions.remove")}"
-        >${TRASH_ICON}</button>
+        >${icon("trash", 18)}</button>
       </div>
     `;
 

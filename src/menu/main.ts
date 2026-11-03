@@ -22,8 +22,8 @@ function mount(): void {
 
   const handleAction = (action: string): void => {
     if (action === "login") {
-      void getCurrentWindow().setSize(new LogicalSize(440, 580));
-      window.location.href = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com";
+      close();
+      void invoke("open_auth_modal").catch(() => undefined);
       return;
     }
     close();

@@ -204,4 +204,14 @@ export const api = {
   hideContextMenu: (): Promise<void> => invoke<void>("hide_context_menu"),
 
   isContextMenuVisible: (): Promise<boolean> => invoke<boolean>("is_context_menu_visible"),
+
+  openAuthModal: (): Promise<void> => invoke<void>("open_auth_modal"),
+
+  closeAuthModal: (): Promise<void> => invoke<void>("close_auth_modal"),
+
+  reloadAuthModal: (): Promise<void> => invoke<void>("reload_auth_modal"),
+
+  backAuthModal: (): Promise<void> => invoke<void>("back_auth_modal"),
+
+  isAuthModalVisible: (): Promise<boolean> => invoke<boolean>("is_auth_modal_visible"),
 };

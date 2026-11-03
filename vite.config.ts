@@ -28,6 +28,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         pip: resolve(__dirname, "pip.html"),
         menu: resolve(__dirname, "menu.html"),
+        authModal: resolve(__dirname, "auth-modal.html"),
       },
     },
   },

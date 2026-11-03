@@ -424,6 +424,100 @@ pub fn is_context_menu_visible(app: tauri::AppHandle) -> AppResult<bool> {
     Ok(false)
 }
 
+/// Opens the centered Google login modal over the main application.
+#[tauri::command]
+pub fn open_auth_modal(app: tauri::AppHandle) -> AppResult<()> {
+    let main = app
+        .get_window(crate::window::layout::MAIN_WINDOW_LABEL)
+        .ok_or_else(|| AppError::State("main window not found".into()))?;
+    let modal = app
+        .get_window(crate::window::layout::AUTH_MODAL_WINDOW_LABEL)
+        .ok_or_else(|| AppError::State("auth modal window not found".into()))?;
+
+    let scale = main.scale_factor()?.max(0.0001);
+    let pos = main.outer_position()?;
+    let size = main.inner_size()?;
+
+    let width = size.width as f64 / scale;
+    let height = size.height as f64 / scale;
+
+    let card_w = (width * 0.50).max(440.0).min(640.0).round();
+    let card_h = (height * 0.60).max(480.0).min(700.0).round();
+    let card_x = ((width - card_w) / 2.0).round();
+    let card_y = ((height - card_h) / 2.0).round();
+    let header_h = 44.0;
+
+    let _ = modal.set_position(pos);
+    let _ = modal.set_size(tauri::LogicalSize::new(width, height));
+
+    if let Some(auth_ui) = modal.get_webview(crate::window::layout::AUTH_UI_WEBVIEW_LABEL) {
+        let _ = auth_ui.set_position(tauri::LogicalPosition::new(0.0, 0.0));
+        let _ = auth_ui.set_size(tauri::LogicalSize::new(width, height));
+    }
+
+    if let Some(auth_web) = modal.get_webview(crate::window::layout::AUTH_WEB_WEBVIEW_LABEL) {
+        let _ = auth_web.set_position(tauri::LogicalPosition::new(card_x, card_y + header_h));
+        let _ = auth_web.set_size(tauri::LogicalSize::new(card_w, card_h - header_h));
+        let _ = auth_web.eval("if (!location.href.includes('accounts.google.com')) { location.href = 'https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com'; }");
+    }
+
+    let _ = app.emit(
+        "auth://modal-layout",
+        serde_json::json!({
+            "cardX": card_x,
+            "cardY": card_y,
+            "cardW": card_w,
+            "cardH": card_h,
+            "headerH": header_h
+        }),
+    );
+
+    let _ = modal.show();
+    let _ = modal.set_focus();
+
+    Ok(())
+}
+
+/// Closes the centered Google login modal.
+#[tauri::command]
+pub fn close_auth_modal(app: tauri::AppHandle) -> AppResult<()> {
+    if let Some(modal) = app.get_window(crate::window::layout::AUTH_MODAL_WINDOW_LABEL) {
+        let _ = modal.hide();
+    }
+    Ok(())
+}
+
+/// Reloads the Google login webview.
+#[tauri::command]
+pub fn reload_auth_modal(app: tauri::AppHandle) -> AppResult<()> {
+    if let Some(modal) = app.get_window(crate::window::layout::AUTH_MODAL_WINDOW_LABEL) {
+        if let Some(web) = modal.get_webview(crate::window::layout::AUTH_WEB_WEBVIEW_LABEL) {
+            let _ = web.eval("location.reload();");
+        }
+    }
+    Ok(())
+}
+
+/// Navigates back within the Google login webview.
+#[tauri::command]
+pub fn back_auth_modal(app: tauri::AppHandle) -> AppResult<()> {
+    if let Some(modal) = app.get_window(crate::window::layout::AUTH_MODAL_WINDOW_LABEL) {
+        if let Some(web) = modal.get_webview(crate::window::layout::AUTH_WEB_WEBVIEW_LABEL) {
+            let _ = web.eval("history.back();");
+        }
+    }
+    Ok(())
+}
+
+/// Checks whether the Google login modal is currently visible.
+#[tauri::command]
+pub fn is_auth_modal_visible(app: tauri::AppHandle) -> AppResult<bool> {
+    if let Some(modal) = app.get_window(crate::window::layout::AUTH_MODAL_WINDOW_LABEL) {
+        return Ok(modal.is_visible().unwrap_or(false));
+    }
+    Ok(false)
+}
+
 /// Injects or removes the CSS that hides the masthead and collapses its height.
 #[tauri::command]
 pub fn set_masthead_integrated(window: Window, integrated: bool) -> AppResult<()> {

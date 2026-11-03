@@ -74,6 +74,10 @@ function mount(): void {
       root.innerHTML = `
         <div class="yt-context-menu">
           <div class="yt-context-menu__body">
+            <button type="button" class="yt-context-menu__item yt-context-menu__item--highlight" data-menu-action="login">
+              ${ytIcon("account", 20)}
+              <span>Fazer login</span>
+            </button>
             <button type="button" class="yt-context-menu__item" data-menu-action="your-data">
               ${ytIcon("your-data", 20)}
               <span>Seus dados no YouTube</span>

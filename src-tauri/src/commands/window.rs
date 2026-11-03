@@ -25,27 +25,6 @@ pub fn set_webview_visible(
 
     if label == YOUTUBE_WEBVIEW_LABEL {
         state.youtube_visible.store(visible, Ordering::SeqCst);
-
-        // The site is hidden while the user is on the launcher pages. Apply the
-        // current theme again right before showing it, so the first frame after
-        // returning home already uses the latest settings instead of the theme
-        // from the previous visit.
-        if visible {
-            use crate::theme::service::ThemeService;
-
-            let theme = state
-                .settings
-                .read()
-                .map(|store| store.snapshot().theme)
-                .ok();
-            let system_dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
-
-            if let Some(theme) = theme {
-                if let Ok(resolved) = ThemeService::resolve(&theme, system_dark) {
-                    let _ = ThemeService::apply_to_youtube(&window, &resolved);
-                }
-            }
-        }
     }
 
     // Never reveal a page that is still loading: the launcher shows its loading
@@ -366,6 +345,9 @@ pub fn yt_navigate(window: Window, action: String) -> AppResult<()> {
         }
         act if act.starts_with("url:") => {
             let target = &act[4..];
+            if target.contains("accounts.google.com") {
+                return Ok(());
+            }
             format!("location.href = '{}'", target.replace('\'', "\\'"))
         }
         act if act.starts_with("eval:") => {

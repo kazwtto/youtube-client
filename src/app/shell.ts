@@ -139,6 +139,7 @@ export function createShell(root: HTMLElement): void {
       // never paints an empty frame between the two.
       await setYoutubeVisible(true);
       content.dataset.youtube = "true";
+      void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
     } else {
       content.dataset.youtube = "false";
       await setYoutubeVisible(false);

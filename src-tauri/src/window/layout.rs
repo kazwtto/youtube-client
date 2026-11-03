@@ -86,6 +86,7 @@ fn setup_menu_window(app: &mut App, webview_data_dir: &Path) -> AppResult<()> {
     .visible(false)
     .shadow(false)
     .background_color(Color(0, 0, 0, 0))
+    .browser_extensions_enabled(true)
     .data_directory(webview_data_dir.join("yt"))
     .on_page_load(move |webview, payload| {
         if let tauri::webview::PageLoadEvent::Finished = payload.event() {

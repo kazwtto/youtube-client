@@ -62,26 +62,102 @@
       }
     } catch (_) {}
 
+    function extractFromInitialData() {
+      try {
+        const data = window.ytInitialData;
+        const buttons = data && data.topbar && data.topbar.desktopTopbarRenderer && data.topbar.desktopTopbarRenderer.topbarButtons;
+        if (Array.isArray(buttons)) {
+          for (const btn of buttons) {
+            const menuBtn = btn.topbarMenuButtonRenderer;
+            if (!menuBtn) continue;
+            const thumbs = menuBtn.avatar && menuBtn.avatar.thumbnails;
+            const avatar = Array.isArray(thumbs) && thumbs.length > 0 ? thumbs[thumbs.length - 1].url : null;
+            let name = null;
+            let h = null;
+            const header = menuBtn.menuRenderer && menuBtn.menuRenderer.multiPageMenuRenderer && menuBtn.menuRenderer.multiPageMenuRenderer.header && menuBtn.menuRenderer.multiPageMenuRenderer.header.activeAccountHeaderRenderer;
+            if (header) {
+              name = (header.accountName && header.accountName.simpleText) || (header.accountName && header.accountName.runs && header.accountName.runs[0] && header.accountName.runs[0].text) || null;
+              h = (header.channelHandle && header.channelHandle.simpleText) || (header.channelHandle && header.channelHandle.runs && header.channelHandle.runs[0] && header.channelHandle.runs[0].text) || null;
+            }
+            if (avatar || name || h) {
+              return { avatar, name, handle: h };
+            }
+          }
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    function extractFromYtcfg() {
+      try {
+        if (window.ytcfg && typeof window.ytcfg.get === "function") {
+          const user = window.ytcfg.get("INNERTUBE_CONTEXT") && window.ytcfg.get("INNERTUBE_CONTEXT").user;
+          const avatar = window.ytcfg.get("USER_AVATAR") || (window.ytcfg.data_ && window.ytcfg.data_.USER_AVATAR) || null;
+          return {
+            avatar: avatar,
+            name: (user && user.onBehalfOfUser) || null,
+          };
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    let domAvatar = null;
     const avatarImg = document.querySelector(
-      "button#avatar-btn img, #avatar-btn img, ytd-topbar-menu-button-renderer img, yt-avatar-shape img, yt-img-shadow#avatar img, button.yt-spec-button-shape-next--avatar img, ytd-masthead #avatar-btn img",
+      "button#avatar-btn img, #avatar-btn img, ytd-topbar-menu-button-renderer img, yt-avatar-shape img, yt-img-shadow#avatar img, button.yt-spec-button-shape-next--avatar img, ytd-masthead #avatar-btn img, #masthead #avatar-btn img",
     );
-    const loginLink = document.querySelector("#buttons a[href*='ServiceLogin'], ytd-button-renderer a[href*='ServiceLogin']");
+    if (avatarImg) {
+      const src = avatarImg.src || avatarImg.currentSrc || avatarImg.getAttribute("src");
+      if (src && !src.startsWith("data:") && src !== "about:blank") {
+        domAvatar = src;
+      }
+    }
+
+    const initData = extractFromInitialData();
+    const cfgData = extractFromYtcfg();
+
+    let resolvedAvatar = (initData && initData.avatar) || (cfgData && cfgData.avatar) || domAvatar || null;
+    if (resolvedAvatar && resolvedAvatar.startsWith("//")) {
+      resolvedAvatar = "https:" + resolvedAvatar;
+    }
+
+    let resolvedName = (initData && initData.name) || (cfgData && cfgData.name);
+    if (!resolvedName) {
+      const nameEl = document.querySelector(
+        "#channel-name, #account-name, ytd-multi-page-menu-renderer #account-name, ytd-active-account-header-renderer #account-name",
+      );
+      if (nameEl) {
+        const text = (nameEl.textContent || "").trim();
+        if (text && text.toLowerCase() !== "youtube") {
+          resolvedName = text;
+        }
+      }
+    }
+
+    let resolvedHandle = initData && initData.handle;
+    if (!resolvedHandle) {
+      const handleEl = document.querySelector(
+        "#channel-handle, ytd-multi-page-menu-renderer #channel-handle, ytd-active-account-header-renderer #channel-handle",
+      );
+      if (handleEl) {
+        const text = (handleEl.textContent || "").trim();
+        if (text) {
+          resolvedHandle = text;
+        }
+      }
+    }
+
+    const loginLink = document.querySelector(
+      "#buttons a[href*='ServiceLogin'], ytd-button-renderer a[href*='ServiceLogin']",
+    );
 
     let authState = null;
-    const avatarSrc = avatarImg ? (avatarImg.src || avatarImg.currentSrc || avatarImg.getAttribute("src")) : null;
-
-    if (isYtcfgLoggedIn === true || (avatarSrc && avatarSrc.startsWith("http"))) {
-      const nameEl = document.querySelector(
-        "#channel-name, #account-name, ytd-multi-page-menu-renderer #account-name",
-      );
-      const handleEl = document.querySelector(
-        "#channel-handle, ytd-multi-page-menu-renderer #channel-handle",
-      );
+    if (isYtcfgLoggedIn === true || Boolean(resolvedAvatar) || (isYtcfgLoggedIn !== false && !loginLink && Boolean(resolvedName))) {
       authState = {
         loggedIn: true,
-        avatarUrl: avatarSrc || null,
-        displayName: nameEl ? (nameEl.textContent || "").trim() : null,
-        handle: handleEl ? (handleEl.textContent || "").trim() : null,
+        avatarUrl: resolvedAvatar || null,
+        displayName: resolvedName || null,
+        handle: resolvedHandle || null,
       };
     } else if (isYtcfgLoggedIn === false || loginLink) {
       authState = { loggedIn: false, avatarUrl: null, displayName: null, handle: null };

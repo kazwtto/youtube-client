@@ -31,6 +31,43 @@ pub struct ExtensionService {
     extra_roots: Vec<PathBuf>,
 }
 
+fn extract_zip(zip_path: &Path, dest_dir: &Path) -> AppResult<()> {
+    std::fs::create_dir_all(dest_dir)?;
+
+    let status = std::process::Command::new("tar")
+        .arg("-xf")
+        .arg(zip_path)
+        .arg("-C")
+        .arg(dest_dir)
+        .status();
+
+    if let Ok(s) = status {
+        if s.success() {
+            return Ok(());
+        }
+    }
+
+    let ps_cmd = format!(
+        "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+        zip_path.display(),
+        dest_dir.display()
+    );
+    let ps_status = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_cmd])
+        .status();
+
+    if let Ok(s) = ps_status {
+        if s.success() {
+            return Ok(());
+        }
+    }
+
+    Err(AppError::Validation(format!(
+        "failed to extract zip file: {}",
+        zip_path.display()
+    )))
+}
+
 impl ExtensionService {
     pub fn new(primary_root: PathBuf) -> Self {
         let mut extra_roots = Vec::new();
@@ -92,6 +129,18 @@ impl ExtensionService {
             };
 
             for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if ext.eq_ignore_ascii_case("zip") || ext.eq_ignore_ascii_case("crx") {
+                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("ext");
+                        let dest = root.join(stem);
+                        if !dest.exists() {
+                            let _ = extract_zip(&path, &dest);
+                        }
+                    }
+                }
+
                 if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
                     continue;
                 }
@@ -117,18 +166,90 @@ impl ExtensionService {
         Ok(summaries)
     }
 
-    /// Installs an extension from a local folder, copying it to the app directory.
+    /// Installs an extension from a local folder or zip file, copying it to the app directory.
     pub fn install(&self, source: &Path) -> AppResult<ExtensionSummary> {
-        let target_root = match self.find_extension_root(source) {
-            Some(dir) => dir,
-            None => {
-                return Err(AppError::Validation(format!(
-                    "no manifest.json or ytapp.json found in {}",
-                    source.display()
-                )));
-            }
-        };
+        let all = self.install_all(source)?;
+        all.into_iter()
+            .next()
+            .ok_or_else(|| AppError::Validation("no extension found".into()))
+    }
 
+    /// Installs all extensions found at a path (which can be a single zip/crx file,
+    /// an unpacked extension directory, or a folder containing multiple zips/extensions).
+    pub fn install_all(&self, source: &Path) -> AppResult<Vec<ExtensionSummary>> {
+        let mut results = Vec::new();
+
+        if source.is_file() {
+            let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext.eq_ignore_ascii_case("zip") || ext.eq_ignore_ascii_case("crx") {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis();
+                let temp = std::env::temp_dir().join(format!("yt_ext_{now}"));
+                extract_zip(source, &temp)?;
+                if let Some(root_dir) = self.find_extension_root(&temp) {
+                    let fallback_id = source.file_stem().and_then(|s| s.to_str()).unwrap_or("ext");
+                    let summary = self.install_single(&root_dir, fallback_id)?;
+                    results.push(summary);
+                }
+                let _ = std::fs::remove_dir_all(&temp);
+            }
+        } else if source.is_dir() {
+            // First, scan for any zip/crx archives in this folder
+            if let Ok(entries) = std::fs::read_dir(source) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        if ext.eq_ignore_ascii_case("zip") || ext.eq_ignore_ascii_case("crx") {
+                            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("ext");
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis();
+                            let temp = std::env::temp_dir().join(format!("yt_ext_{stem}_{now}"));
+                            if extract_zip(&path, &temp).is_ok() {
+                                if let Some(root_dir) = self.find_extension_root(&temp) {
+                                    if let Ok(summary) = self.install_single(&root_dir, stem) {
+                                        results.push(summary);
+                                    }
+                                }
+                                let _ = std::fs::remove_dir_all(&temp);
+                            }
+                        }
+                    } else if path.is_dir() {
+                        if let Some(root_dir) = self.find_extension_root(&path) {
+                            let folder_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("ext");
+                            if let Ok(summary) = self.install_single(&root_dir, folder_name) {
+                                results.push(summary);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If no child archives or child folders were extensions, check if source itself is an extension
+            if results.is_empty() {
+                if let Some(target_root) = self.find_extension_root(source) {
+                    let folder_name = source.file_name().and_then(|s| s.to_str()).unwrap_or("ext");
+                    let summary = self.install_single(&target_root, folder_name)?;
+                    results.push(summary);
+                }
+            }
+        }
+
+        if results.is_empty() {
+            return Err(AppError::Validation(format!(
+                "no manifest.json or ytapp.json found in {}",
+                source.display()
+            )));
+        }
+
+        Ok(results)
+    }
+
+    fn install_single(&self, target_root: &Path, fallback_name: &str) -> AppResult<ExtensionSummary> {
         let chromium = read_chromium_manifest(&target_root.join("manifest.json"))?;
         let ytapp = read_ytapp_manifest(&target_root.join("ytapp.json"))?;
 
@@ -138,18 +259,16 @@ impl ExtensionService {
             ));
         }
 
-        let id = resolve_id(&ytapp, source);
+        let id = resolve_id(&ytapp, Path::new(fallback_name));
         validate_id(&id)?;
 
         let target = self.primary_root.join(&id);
         if target.exists() {
-            return Err(AppError::Validation(format!(
-                "extension already installed: {id}"
-            )));
+            let _ = std::fs::remove_dir_all(&target);
         }
 
         std::fs::create_dir_all(&self.primary_root)?;
-        copy_dir_all(&target_root, &target)?;
+        copy_dir_all(target_root, &target)?;
 
         let disabled = BTreeSet::new();
         self.read_extension(&target, &disabled)?

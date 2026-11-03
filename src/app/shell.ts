@@ -129,6 +129,15 @@ export function createShell(root: HTMLElement): void {
     console.warn(t("shell.loadingEventsError", { error: String(error) }));
   });
 
+  let youtubeVisibleState: boolean | null = null;
+  const updateYoutubeVisible = async (visible: boolean): Promise<void> => {
+    if (youtubeVisibleState === visible) {
+      return;
+    }
+    youtubeVisibleState = visible;
+    await setYoutubeVisible(visible);
+  };
+
   router.onNavigate(async (route) => {
     currentRoute = route.id;
     titlebar.setActive(route.id);
@@ -137,12 +146,12 @@ export function createShell(root: HTMLElement): void {
     if (route.id === "home") {
       // Show the site first and hide the local page right after, so the window
       // never paints an empty frame between the two.
-      await setYoutubeVisible(true);
+      await updateYoutubeVisible(true);
       content.dataset.youtube = "true";
       void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
     } else {
       content.dataset.youtube = "false";
-      await setYoutubeVisible(false);
+      await updateYoutubeVisible(false);
     }
   });
 

@@ -132,6 +132,10 @@ fn sync_extensions(handle: &tauri::AppHandle, window: &tauri::Window, webview_da
         return;
     };
 
+    if list.is_empty() {
+        return;
+    }
+
     if !extensions::apply_runtime(window, &list) {
         return;
     }

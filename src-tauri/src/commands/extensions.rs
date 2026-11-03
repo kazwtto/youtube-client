@@ -21,10 +21,10 @@ pub async fn extensions_install(
     window: tauri::Window,
     state: State<'_, AppState>,
     source: String,
-) -> AppResult<ExtensionSummary> {
-    let summary = state.extensions.install(Path::new(&source))?;
+) -> AppResult<Vec<ExtensionSummary>> {
+    let summaries = state.extensions.install_all(Path::new(&source))?;
     refresh(&window, &state);
-    Ok(summary)
+    Ok(summaries)
 }
 
 #[tauri::command]

@@ -186,7 +186,7 @@ fn setup_auth_modal_window(app: &mut App, webview_data_dir: &Path) -> AppResult<
                     }
                     if let Some(main) = app.get_window(MAIN_WINDOW_LABEL) {
                         if let Some(yt) = main.get_webview(YOUTUBE_WEBVIEW_LABEL) {
-                            let _ = yt.eval("location.reload();");
+                            let _ = yt.eval("fetch(location.href, { credentials: 'include', cache: 'no-store' });");
                         }
                     }
                 }
@@ -397,7 +397,10 @@ fn add_youtube(
 
                     match payload.event() {
                         tauri::webview::PageLoadEvent::Started => {
-                            if payload.url().as_str().contains("accounts.google.com") {
+                            let url_str = payload.url().as_str();
+                            if url_str.contains("accounts.google.com/ServiceLogin")
+                                || url_str.contains("accounts.google.com/v3/signin")
+                            {
                                 let _ = webview.eval("location.href = 'https://www.youtube.com';");
                                 return;
                             }

@@ -879,6 +879,7 @@
 .history-group__items {
   display: flex;
   flex-direction: column;
+  padding: 0 1em;
 }
 
 .history--grid .history-group__items {

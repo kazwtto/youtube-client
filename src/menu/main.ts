@@ -35,10 +35,15 @@ function mount(): void {
       root.innerHTML = `
         <div class="yt-context-menu">
           <div class="yt-context-menu__header">
-            <img class="yt-context-menu__header-avatar" src="${auth.avatarUrl || ""}" alt="Avatar" />
+            <div class="yt-context-menu__avatar-container">
+              ${auth.avatarUrl ? `<img class="yt-context-menu__header-avatar" src="${auth.avatarUrl}" alt="" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex';" />` : ""}
+              <span class="yt-context-menu__header-avatar--fallback" ${auth.avatarUrl ? 'style="display:none"' : ""}>
+                ${ytIcon("account", 24)}
+              </span>
+            </div>
             <div class="yt-context-menu__header-info">
-              <span class="yt-context-menu__header-name">${auth.displayName || "YouTube"}</span>
-              <span class="yt-context-menu__header-handle">${auth.handle || ""}</span>
+              <span class="yt-context-menu__header-name">${auth.displayName || auth.handle || "Minha Conta"}</span>
+              ${auth.handle ? `<span class="yt-context-menu__header-handle">${auth.handle}</span>` : ""}
             </div>
           </div>
           <div class="yt-context-menu__body">

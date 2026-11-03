@@ -166,8 +166,8 @@ export const api = {
   extensionsList: (): Promise<ExtensionSummary[]> =>
     invoke<ExtensionSummary[]>("extensions_list"),
 
-  extensionsInstall: (source: string): Promise<ExtensionSummary> =>
-    invoke<ExtensionSummary>("extensions_install", { source }),
+  extensionsInstall: (source: string): Promise<ExtensionSummary[]> =>
+    invoke<ExtensionSummary[]>("extensions_install", { source }),
 
   extensionsUninstall: (id: string): Promise<void> =>
     invoke<void>("extensions_uninstall", { id }),

@@ -39,6 +39,7 @@
     "allow-history-list",
     "allow-history-clear",
     "allow-history-delete",
-    "allow-player-snapshot"
+    "allow-player-snapshot",
+    "allow-auth-snapshot"
   ]
 }

@@ -52,13 +52,25 @@
       return;
     }
 
+    let isYtcfgLoggedIn = null;
+    try {
+      if (window.ytcfg && typeof window.ytcfg.get === "function") {
+        const val = window.ytcfg.get("LOGGED_IN");
+        if (typeof val === "boolean") {
+          isYtcfgLoggedIn = val;
+        }
+      }
+    } catch (_) {}
+
     const avatarImg = document.querySelector(
-      "#avatar-btn img, ytd-topbar-menu-button-renderer #avatar img, button#avatar-btn img, ytd-masthead #avatar-btn img",
+      "button#avatar-btn img, #avatar-btn img, ytd-topbar-menu-button-renderer img, yt-avatar-shape img, yt-img-shadow#avatar img, button.yt-spec-button-shape-next--avatar img, ytd-masthead #avatar-btn img",
     );
-    const loginLink = document.querySelector("#buttons a[href*='ServiceLogin']");
+    const loginLink = document.querySelector("#buttons a[href*='ServiceLogin'], ytd-button-renderer a[href*='ServiceLogin']");
 
     let authState = null;
-    if (avatarImg && avatarImg.src) {
+    const avatarSrc = avatarImg ? (avatarImg.src || avatarImg.currentSrc || avatarImg.getAttribute("src")) : null;
+
+    if (isYtcfgLoggedIn === true || (avatarSrc && avatarSrc.startsWith("http"))) {
       const nameEl = document.querySelector(
         "#channel-name, #account-name, ytd-multi-page-menu-renderer #account-name",
       );
@@ -67,11 +79,11 @@
       );
       authState = {
         loggedIn: true,
-        avatarUrl: avatarImg.src,
+        avatarUrl: avatarSrc || null,
         displayName: nameEl ? (nameEl.textContent || "").trim() : null,
         handle: handleEl ? (handleEl.textContent || "").trim() : null,
       };
-    } else if (loginLink) {
+    } else if (isYtcfgLoggedIn === false || loginLink) {
       authState = { loggedIn: false, avatarUrl: null, displayName: null, handle: null };
     }
 

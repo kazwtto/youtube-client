@@ -43,6 +43,7 @@ fn main() {
             "history_clear",
             "history_delete",
             "player_snapshot",
+            "auth_snapshot",
         ]),
     ))
     .expect("failed to run tauri-build");

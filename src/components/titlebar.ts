@@ -660,8 +660,11 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
   function setAuth(auth: AuthSnapshot): void {
     currentAuth = auth;
-    if (auth.loggedIn && auth.avatarUrl) {
-      avatarImg.src = auth.avatarUrl;
+    if (auth.loggedIn) {
+      if (auth.avatarUrl) {
+        avatarImg.src = auth.avatarUrl;
+        avatarImg.hidden = false;
+      }
       avatarButton.hidden = false;
       loginButton.hidden = true;
     } else {

@@ -186,7 +186,7 @@ fn setup_auth_modal_window(app: &mut App, webview_data_dir: &Path) -> AppResult<
                     }
                     if let Some(main) = app.get_window(MAIN_WINDOW_LABEL) {
                         if let Some(yt) = main.get_webview(YOUTUBE_WEBVIEW_LABEL) {
-                            let _ = yt.eval("location.href = 'https://www.youtube.com';");
+                            let _ = yt.eval("location.reload();");
                         }
                     }
                 }

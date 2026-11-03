@@ -16,6 +16,9 @@
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
   user-select: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .titlebar__brand {
@@ -55,17 +58,20 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
 }
 
 .titlebar__spacer {
   flex: 1;
   align-self: stretch;
+  min-width: 8px;
 }
 
 .titlebar__controls {
   align-self: stretch;
   gap: 0;
   margin-left: 6px;
+  flex-shrink: 0;
 }
 
 .titlebar__button {
@@ -368,7 +374,8 @@
   align-items: stretch;
   gap: 2px;
   height: 100%;
-  margin-left: 6px;
+  min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
 }
 
@@ -378,14 +385,22 @@
   align-items: center;
   gap: 6px;
   height: 100%;
-  padding: 0 13px;
+  padding: 0 11px;
   border: 0;
   background: transparent;
   color: var(--color-fg-muted);
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
   transition: color var(--motion-fast) ease, background var(--motion-fast) ease;
+}
+
+.titlebar__tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .titlebar__tab:hover {
@@ -566,6 +581,72 @@
 
 /* Integrated Masthead Components */
 
+.titlebar:not(.titlebar--integrated-masthead) .titlebar__spacer--left {
+  display: none;
+}
+
+.titlebar:not(.titlebar--integrated-masthead) .titlebar__tabs,
+.titlebar:not(.titlebar--integrated-masthead) .titlebar__icons {
+  order: 2;
+  margin-left: 6px;
+}
+
+.titlebar:not(.titlebar--integrated-masthead) .titlebar__spacer--right {
+  order: 3;
+  flex: 1;
+}
+
+.titlebar:not(.titlebar--integrated-masthead) .titlebar__controls {
+  order: 4;
+}
+
+.titlebar--integrated-masthead .titlebar__button--guide {
+  order: 1;
+  flex-shrink: 0;
+}
+
+.titlebar--integrated-masthead .titlebar__brand {
+  order: 2;
+  flex-shrink: 0;
+}
+
+.titlebar--integrated-masthead .titlebar__group {
+  order: 3;
+  flex-shrink: 0;
+}
+
+.titlebar--integrated-masthead .titlebar__spacer--left {
+  order: 4;
+  flex: 1;
+  display: block;
+}
+
+.titlebar--integrated-masthead .titlebar__search-container {
+  order: 5;
+}
+
+.titlebar--integrated-masthead .titlebar__spacer--right {
+  order: 6;
+  flex: 1;
+  display: block;
+}
+
+.titlebar--integrated-masthead .titlebar__tabs,
+.titlebar--integrated-masthead .titlebar__icons {
+  order: 7;
+  margin-left: 0;
+}
+
+.titlebar--integrated-masthead .titlebar__auth-container {
+  order: 8;
+  flex-shrink: 0;
+}
+
+.titlebar--integrated-masthead .titlebar__controls {
+  order: 9;
+  flex-shrink: 0;
+}
+
 .titlebar__button--guide {
   width: 32px;
   height: 30px;
@@ -578,13 +659,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 1 440px;
-  min-width: 160px;
-  margin: 0 8px;
-}
-
-.titlebar--icons-mode .titlebar__search-container {
-  flex: 0 1 560px;
+  flex: 0 1 540px;
+  min-width: 180px;
+  margin: 0 4px;
 }
 
 .titlebar__search-box {

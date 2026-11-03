@@ -125,9 +125,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       <button type="button" class="titlebar__button" data-action="reload" title="${t("titlebar.reload")}" aria-label="${t("titlebar.reload")}">${icon("reload")}</button>
     </div>
 
-    <nav class="titlebar__tabs" role="tablist" aria-label="${t("titlebar.appActions")}">
-      ${tabButtons}
-    </nav>
+    <div class="titlebar__spacer titlebar__spacer--left" data-tauri-drag-region></div>
 
     <div class="titlebar__search-container" role="search" hidden>
       <div class="titlebar__search-box">
@@ -171,7 +169,11 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       <div class="titlebar__search-suggestions" hidden></div>
     </div>
 
-    <div class="titlebar__spacer" data-tauri-drag-region></div>
+    <div class="titlebar__spacer titlebar__spacer--right" data-tauri-drag-region></div>
+
+    <nav class="titlebar__tabs" role="tablist" aria-label="${t("titlebar.appActions")}">
+      ${tabButtons}
+    </nav>
 
     <div class="titlebar__group titlebar__icons" role="group" aria-label="${t("titlebar.appActions")}" hidden>
       ${iconButtons}

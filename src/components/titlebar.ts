@@ -476,6 +476,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       case "login":
       case "switch-account":
         actions.onNavigate("home");
+        void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
         break;
       case "logout":
         actions.onNavigate("home");

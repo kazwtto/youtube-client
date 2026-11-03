@@ -65,7 +65,6 @@ export async function renderSettings(host: HTMLElement, initialTab = "appearance
 
         <form class="settings" id="settings-form" novalidate>
           <section class="yt-section" id="settings-appearance" data-tab-panel="appearance">
-            <h2 class="yt-section__title">${t("settings.appearance")}</h2>
             <p class="yt-section__hint">${t("settings.appearanceHint")}</p>
 
             <label class="yt-setting">
@@ -148,7 +147,6 @@ export async function renderSettings(host: HTMLElement, initialTab = "appearance
           </section>
 
           <section class="yt-section" id="settings-pip" data-tab-panel="pip" hidden>
-            <h2 class="yt-section__title">${t("settings.pipTitle")}</h2>
             <p class="yt-section__hint">${t("settings.pipHint")}</p>
 
             <label class="yt-setting">
@@ -199,7 +197,6 @@ export async function renderSettings(host: HTMLElement, initialTab = "appearance
           </section>
 
           <section class="yt-section" id="settings-history" data-tab-panel="history" hidden>
-            <h2 class="yt-section__title">${t("settings.historyTitle")}</h2>
             <p class="yt-section__hint">${t("settings.historyHint")}</p>
 
             <label class="yt-setting">
@@ -229,7 +226,6 @@ export async function renderSettings(host: HTMLElement, initialTab = "appearance
           </section>
 
           <section class="yt-section" id="settings-app" data-tab-panel="app" hidden>
-            <h2 class="yt-section__title">${t("settings.application")}</h2>
             <p class="yt-section__hint">${t("settings.hardwareAccelerationHint")}</p>
 
             <label class="yt-setting">

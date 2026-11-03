@@ -464,13 +464,14 @@
 }
 
 .yt-section__hint {
-  margin: 4px 0 0;
+  margin: 0 0 16px;
   color: var(--color-fg-muted);
   font-size: 12px;
   line-height: 18px;
 }
 
-.yt-section__title + .yt-setting {
+.yt-section__title + .yt-setting,
+.yt-section__hint + .yt-setting {
   margin-top: 12px;
 }
 
@@ -482,6 +483,12 @@
   min-height: 48px;
   padding: 8px 0;
   border-top: 1px solid var(--color-border);
+}
+
+.yt-setting:first-child,
+.yt-section__hint + .yt-setting,
+.yt-section__title + .yt-setting {
+  border-top: 0;
 }
 
 .yt-section__hint + .yt-setting {

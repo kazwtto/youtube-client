@@ -128,27 +128,18 @@ export function createShell(root: HTMLElement): void {
     console.warn(t("shell.loadingEventsError", { error: String(error) }));
   });
 
-  let youtubeVisibleState: boolean | null = null;
-  const setYoutubeVisibility = (visible: boolean): void => {
-    if (youtubeVisibleState === visible) {
-      return;
-    }
-    youtubeVisibleState = visible;
-    void setYoutubeVisible(visible);
-  };
-
-  router.onNavigate((route) => {
+  router.onNavigate(async (route) => {
     currentRoute = route.id;
     titlebar.setActive(route.id);
     syncLoading();
 
     if (route.id === "home") {
       content.dataset.youtube = "true";
-      setYoutubeVisibility(true);
+      void setYoutubeVisible(true);
       void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
     } else {
       content.dataset.youtube = "false";
-      setYoutubeVisibility(false);
+      void setYoutubeVisible(false);
     }
   });
 

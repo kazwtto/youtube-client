@@ -24,10 +24,6 @@ pub fn set_webview_visible(
         .ok_or_else(|| AppError::NotFound(format!("webview: {label}")))?;
 
     if label == YOUTUBE_WEBVIEW_LABEL {
-        let current = state.youtube_visible.load(Ordering::SeqCst);
-        if current == visible {
-            return Ok(());
-        }
         state.youtube_visible.store(visible, Ordering::SeqCst);
     }
 

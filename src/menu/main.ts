@@ -42,7 +42,7 @@ function mount(): void {
               </span>
             </div>
             <div class="yt-context-menu__header-info">
-              <span class="yt-context-menu__header-name">${auth.displayName || auth.handle || ""}</span>
+              <span class="yt-context-menu__header-name">${auth.displayName || auth.handle || "Minha Conta"}</span>
               ${auth.handle ? `<span class="yt-context-menu__header-handle">${auth.handle}</span>` : ""}
             </div>
           </div>

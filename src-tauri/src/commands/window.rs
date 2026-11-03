@@ -44,8 +44,6 @@ pub fn set_webview_visible(
         webview.hide()?;
     }
 
-    let _ = crate::window::layout::layout_webviews(&window);
-
     Ok(())
 }
 

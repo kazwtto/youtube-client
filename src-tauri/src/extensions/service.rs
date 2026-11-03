@@ -27,35 +27,89 @@ pub struct ExtensionSummary {
 
 /// Manages the app extensions folder: discovery, installation, and removal.
 pub struct ExtensionService {
-    root: PathBuf,
+    primary_root: PathBuf,
+    extra_roots: Vec<PathBuf>,
 }
 
 impl ExtensionService {
-    pub fn new(root: PathBuf) -> Self {
-        Self { root }
+    pub fn new(primary_root: PathBuf) -> Self {
+        let mut extra_roots = Vec::new();
+
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd_ext = cwd.join("extensions");
+            if cwd_ext != primary_root && cwd_ext.exists() {
+                extra_roots.push(cwd_ext);
+            }
+        }
+
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                let exe_ext = parent.join("extensions");
+                if exe_ext != primary_root && !extra_roots.contains(&exe_ext) && exe_ext.exists() {
+                    extra_roots.push(exe_ext);
+                }
+            }
+        }
+
+        Self {
+            primary_root,
+            extra_roots,
+        }
     }
 
     pub fn root(&self) -> &Path {
-        &self.root
+        &self.primary_root
     }
 
     /// Lists valid extensions, marking those that are not disabled as enabled.
     pub fn list(&self, disabled: &BTreeSet<String>) -> AppResult<Vec<ExtensionSummary>> {
         let mut summaries = Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
 
-        if !self.root.exists() {
-            return Ok(summaries);
+        let mut all_roots = vec![&self.primary_root];
+        for r in &self.extra_roots {
+            all_roots.push(r);
         }
 
-        for entry in std::fs::read_dir(&self.root)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
+        let runtime_cwd = std::env::current_dir().ok().map(|d| d.join("extensions"));
+        if let Some(ref cwd_ext) = runtime_cwd {
+            if cwd_ext.exists() && !all_roots.iter().any(|r| **r == *cwd_ext) {
+                all_roots.push(cwd_ext);
+            }
+        }
+
+        for root in all_roots {
+            if !root.exists() {
                 continue;
             }
 
-            // Corrupted or invalid extensions do not interrupt listing.
-            if let Ok(Some(summary)) = self.read_extension(&entry.path(), disabled) {
-                summaries.push(summary);
+            let entries = match std::fs::read_dir(root) {
+                Ok(e) => e,
+                Err(error) => {
+                    eprintln!("extensions: failed to read dir {}: {error}", root.display());
+                    continue;
+                }
+            };
+
+            for entry in entries.flatten() {
+                if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+
+                match self.read_extension(&entry.path(), disabled) {
+                    Ok(Some(summary)) => {
+                        if seen_ids.insert(summary.id.clone()) {
+                            summaries.push(summary);
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        eprintln!(
+                            "extensions: could not parse extension at {}: {error}",
+                            entry.path().display()
+                        );
+                    }
+                }
             }
         }
 
@@ -65,15 +119,18 @@ impl ExtensionService {
 
     /// Installs an extension from a local folder, copying it to the app directory.
     pub fn install(&self, source: &Path) -> AppResult<ExtensionSummary> {
-        if !source.is_dir() {
-            return Err(AppError::Validation(format!(
-                "invalid installation path: {}",
-                source.display()
-            )));
-        }
+        let target_root = match self.find_extension_root(source) {
+            Some(dir) => dir,
+            None => {
+                return Err(AppError::Validation(format!(
+                    "no manifest.json or ytapp.json found in {}",
+                    source.display()
+                )));
+            }
+        };
 
-        let chromium = read_chromium_manifest(&source.join("manifest.json"))?;
-        let ytapp = read_ytapp_manifest(&source.join("ytapp.json"))?;
+        let chromium = read_chromium_manifest(&target_root.join("manifest.json"))?;
+        let ytapp = read_ytapp_manifest(&target_root.join("ytapp.json"))?;
 
         if chromium.is_none() && ytapp.is_none() {
             return Err(AppError::Validation(
@@ -84,15 +141,15 @@ impl ExtensionService {
         let id = resolve_id(&ytapp, source);
         validate_id(&id)?;
 
-        let target = self.root.join(&id);
+        let target = self.primary_root.join(&id);
         if target.exists() {
             return Err(AppError::Validation(format!(
                 "extension already installed: {id}"
             )));
         }
 
-        std::fs::create_dir_all(&self.root)?;
-        copy_dir_all(source, &target)?;
+        std::fs::create_dir_all(&self.primary_root)?;
+        copy_dir_all(&target_root, &target)?;
 
         let disabled = BTreeSet::new();
         self.read_extension(&target, &disabled)?
@@ -117,17 +174,22 @@ impl ExtensionService {
 
     fn read_extension(
         &self,
-        path: &Path,
+        entry_path: &Path,
         disabled: &BTreeSet<String>,
     ) -> AppResult<Option<ExtensionSummary>> {
-        let chromium = read_chromium_manifest(&path.join("manifest.json"))?;
-        let ytapp = read_ytapp_manifest(&path.join("ytapp.json"))?;
+        let target_dir = match self.find_extension_root(entry_path) {
+            Some(dir) => dir,
+            None => return Ok(None),
+        };
+
+        let chromium = read_chromium_manifest(&target_dir.join("manifest.json"))?;
+        let ytapp = read_ytapp_manifest(&target_dir.join("ytapp.json"))?;
 
         if chromium.is_none() && ytapp.is_none() {
             return Ok(None);
         }
 
-        let id = resolve_id(&ytapp, path);
+        let id = resolve_id(&ytapp, entry_path);
         validate_id(&id)?;
 
         let name = ytapp
@@ -160,19 +222,43 @@ impl ExtensionService {
                     .map(|permission| permission.as_str().to_string())
                     .collect()
             })
+            .or_else(|| {
+                chromium.as_ref().map(|manifest| manifest.permissions.clone())
+            })
             .unwrap_or_default();
 
         Ok(Some(ExtensionSummary {
             enabled: !disabled.contains(&id),
             has_chromium_manifest: chromium.is_some(),
             has_ytapp_manifest: ytapp.is_some(),
-            path: path.to_string_lossy().into_owned(),
+            path: target_dir.to_string_lossy().into_owned(),
             id,
             name,
             version,
             description,
             permissions,
         }))
+    }
+
+    fn find_extension_root(&self, path: &Path) -> Option<PathBuf> {
+        if path.join("manifest.json").exists() || path.join("ytapp.json").exists() {
+            return Some(path.to_path_buf());
+        }
+
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        let sub = entry.path();
+                        if sub.join("manifest.json").exists() || sub.join("ytapp.json").exists() {
+                            return Some(sub);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 }
 

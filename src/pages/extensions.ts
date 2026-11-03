@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { icon } from "../components/icons";
@@ -247,6 +248,10 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
   dialog.querySelector<HTMLButtonElement>("[data-pick]")?.addEventListener("click", () => {
     dialog.close();
     void install();
+  });
+
+  void listen("extensions://changed", () => {
+    void refresh();
   });
 
   await refresh();

@@ -66,7 +66,7 @@ pub fn read_chromium_manifest(path: &Path) -> AppResult<Option<ChromiumManifest>
     }
 
     let raw = std::fs::read_to_string(path)?;
-    let manifest: ChromiumManifest = serde_json::from_str(&raw).map_err(|error| {
+    let mut manifest: ChromiumManifest = serde_json::from_str(&raw).map_err(|error| {
         AppError::Validation(format!(
             "invalid manifest.json ({}): {error}",
             path.display()
@@ -76,15 +76,76 @@ pub fn read_chromium_manifest(path: &Path) -> AppResult<Option<ChromiumManifest>
     if manifest.name.trim().is_empty() {
         return Err(AppError::Validation("manifest.json has no name".into()));
     }
+
+    // Resolve __MSG_...__ i18n localization if present
+    if manifest.name.starts_with("__MSG_") && manifest.name.ends_with("__") {
+        let key = &manifest.name[6..manifest.name.len() - 2];
+        if let Some(parent) = path.parent() {
+            if let Some(resolved) = resolve_chrome_msg(parent, key) {
+                manifest.name = resolved;
+            } else {
+                manifest.name = key.replace('_', " ");
+            }
+        }
+    }
+
+    if let Some(desc) = &manifest.description {
+        if desc.starts_with("__MSG_") && desc.ends_with("__") {
+            let key = &desc[6..desc.len() - 2];
+            if let Some(parent) = path.parent() {
+                if let Some(resolved) = resolve_chrome_msg(parent, key) {
+                    manifest.description = Some(resolved);
+                }
+            }
+        }
+    }
+
     validate_version(&manifest.version)?;
 
-    if manifest.manifest_version != 3 {
-        return Err(AppError::Validation(
-            "manifest.json must use manifest_version 3".into(),
-        ));
+    if manifest.manifest_version < 2 || manifest.manifest_version > 3 {
+        return Err(AppError::Validation(format!(
+            "manifest.json must use manifest_version 2 or 3 (got {})",
+            manifest.manifest_version
+        )));
     }
 
     Ok(Some(manifest))
+}
+
+fn resolve_chrome_msg(extension_dir: &Path, key: &str) -> Option<String> {
+    let locales_dir = extension_dir.join("_locales");
+    if !locales_dir.exists() {
+        return None;
+    }
+
+    let candidates = ["pt_BR", "pt", "en", "en_US", "en_GB"];
+    for lang in candidates {
+        let file = locales_dir.join(lang).join("messages.json");
+        if file.exists() {
+            if let Ok(raw) = std::fs::read_to_string(&file) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if let Some(msg) = val.get(key).and_then(|entry| entry.get("message")).and_then(|m| m.as_str()) {
+                        if !msg.is_empty() {
+                            return Some(msg.to_string());
+                        }
+                    }
+                    if let Some(obj) = val.as_object() {
+                        for (k, entry) in obj {
+                            if k.eq_ignore_ascii_case(key) {
+                                if let Some(msg) = entry.get("message").and_then(|m| m.as_str()) {
+                                    if !msg.is_empty() {
+                                        return Some(msg.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Reads `ytapp.json`, if present.
@@ -112,20 +173,13 @@ pub fn validate_id(id: &str) -> AppResult<()> {
     }
 }
 
-/// Validates a version in the format `1`, `1.2`, or `1.2.3`.
+/// Validates a non-empty extension version.
 pub fn validate_version(version: &str) -> AppResult<()> {
-    let parts: Vec<&str> = version.split('.').collect();
-    let valid = !parts.is_empty()
-        && parts.len() <= 4
-        && parts
-            .iter()
-            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
-
-    if valid {
-        Ok(())
-    } else {
-        Err(AppError::Validation(format!("invalid version: {version}")))
+    let trimmed = version.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("invalid version: empty".into()));
     }
+    Ok(())
 }
 
 /// Generates a safe id from a folder name.

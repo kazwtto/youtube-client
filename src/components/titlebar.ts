@@ -589,11 +589,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         break;
 
       case "toggle-auth-menu":
-        if (currentAuth.loggedIn) {
-          void toggleAuthMenu();
-        } else {
-          void api.openAuthModal();
-        }
+        void toggleAuthMenu();
         break;
 
       case "minimize":

@@ -9,7 +9,6 @@ export type RouteListener = (route: RouteDefinition) => void | Promise<void>;
 
 export class Router {
   private readonly routes = new Map<RouteId, RouteDefinition>();
-  private readonly containers = new Map<RouteId, HTMLElement>();
   private readonly listeners = new Set<RouteListener>();
   private current: RouteId = "home";
 
@@ -39,12 +38,12 @@ export class Router {
     }
 
     this.current = id;
+    this.host.replaceChildren();
 
     for (const listener of this.listeners) {
       await listener(route);
     }
 
-    this.host.replaceChildren();
     await route.render(this.host);
   }
 }

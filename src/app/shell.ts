@@ -134,12 +134,14 @@ export function createShell(root: HTMLElement): void {
     syncLoading();
 
     if (route.id === "home") {
+      // Show the site first and hide the local page right after, so the window
+      // never paints an empty frame between the two.
+      await setYoutubeVisible(true);
       content.dataset.youtube = "true";
-      void setYoutubeVisible(true);
       void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
     } else {
       content.dataset.youtube = "false";
-      void setYoutubeVisible(false);
+      await setYoutubeVisible(false);
     }
   });
 

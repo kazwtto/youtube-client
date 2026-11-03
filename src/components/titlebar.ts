@@ -447,19 +447,26 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
     const isLogged = currentAuth.loggedIn;
     const menuWidth = 260;
-    const menuHeight = isLogged ? 386 : 228;
+    const menuHeight = isLogged ? 430 : 230;
+
+    const PAD_X = 24;
+    const PAD_TOP = 8;
+    const PAD_BOTTOM = 36;
+
+    const windowWidth = menuWidth + (PAD_X * 2);
+    const windowHeight = menuHeight + PAD_TOP + PAD_BOTTOM;
 
     const screenRight = (outerPos.x / scale) + rect.right;
     const screenBottom = (outerPos.y / scale) + rect.bottom;
 
-    const targetX = Math.round(screenRight - menuWidth);
-    const targetY = Math.round(screenBottom + 6);
+    const targetX = Math.round(screenRight - menuWidth - PAD_X);
+    const targetY = Math.round(screenBottom + 6 - PAD_TOP);
 
     await api.showContextMenu({
       x: targetX,
       y: targetY,
-      width: menuWidth,
-      height: menuHeight,
+      width: windowWidth,
+      height: windowHeight,
       auth: currentAuth,
     });
   };
@@ -467,7 +474,9 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
   const handleContextMenuAction = (action: string): void => {
     switch (action) {
       case "login":
-        void api.ytNavigate("login");
+      case "switch-account":
+        actions.onNavigate("home");
+        void api.ytNavigate("url:https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com");
         break;
       case "logout":
         actions.onNavigate("home");
@@ -557,11 +566,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
     const routeButton = target.closest<HTMLElement>("[data-route]");
     if (routeButton?.dataset.route) {
-      const targetRoute = routeButton.dataset.route as RouteId;
-      actions.onNavigate(targetRoute);
-      if (targetRoute === "home") {
-        void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
-      }
+      actions.onNavigate(routeButton.dataset.route as RouteId);
       return;
     }
 
@@ -582,11 +587,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         break;
 
       case "toggle-auth-menu":
-        if (currentAuth.loggedIn) {
-          void toggleAuthMenu();
-        } else {
-          void api.ytNavigate("login");
-        }
+        toggleAuthMenu();
         break;
 
       case "minimize":

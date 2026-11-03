@@ -45,6 +45,10 @@ function mount(): void {
               ${ytIcon("studio", 20)}
               <span>YouTube Studio</span>
             </button>
+            <button type="button" class="yt-context-menu__item" data-menu-action="switch-account">
+              ${ytIcon("switch-account", 20)}
+              <span>Alternar conta</span>
+            </button>
             <button type="button" class="yt-context-menu__item" data-menu-action="logout">
               ${ytIcon("logout", 20)}
               <span>Sair</span>
@@ -106,7 +110,9 @@ function mount(): void {
         const h = menu.offsetHeight;
         const w = menu.offsetWidth || 260;
         if (h > 0) {
-          void getCurrentWindow().setSize(new LogicalSize(w, h));
+          const winW = w + 48;
+          const winH = h + 44;
+          void getCurrentWindow().setSize(new LogicalSize(winW, winH));
         }
       }
     });

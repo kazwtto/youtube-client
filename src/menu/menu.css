@@ -16,7 +16,7 @@ body {
 
 #menu-root {
   box-sizing: border-box;
-  padding: 0;
+  padding: 8px 24px 36px 24px;
   width: 100%;
   height: 100%;
   display: flex;
@@ -25,12 +25,11 @@ body {
 
 .menu-popover .yt-context-menu {
   position: static;
-  top: 0;
-  right: 0;
-  width: 100%;
-  min-width: 100%;
-  max-width: 100%;
+  top: auto;
+  right: auto;
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
   margin: 0;
   box-sizing: border-box;
-  border-radius: 12px;
 }

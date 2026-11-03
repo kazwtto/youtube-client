@@ -192,16 +192,6 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
       <button
         type="button"
-        class="titlebar__button titlebar__button--more"
-        data-action="toggle-auth-menu"
-        title="Mais opções"
-        aria-label="Mais opções"
-      >
-        ${ytIcon("more", 20, undefined, "pointer-events: none; display: inherit;")}
-      </button>
-
-      <button
-        type="button"
         class="titlebar__avatar-button"
         data-action="toggle-auth-menu"
         title="${t("titlebar.account")}"
@@ -230,7 +220,6 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
   const suggestionsBox = bar.querySelector<HTMLElement>(".titlebar__search-suggestions")!;
   const authContainer = bar.querySelector<HTMLElement>(".titlebar__auth-container")!;
   const loginButton = bar.querySelector<HTMLButtonElement>('.titlebar__login-button')!;
-  const moreButton = bar.querySelector<HTMLButtonElement>('.titlebar__button--more')!;
   const avatarButton = bar.querySelector<HTMLButtonElement>('.titlebar__avatar-button')!;
   const avatarImg = bar.querySelector<HTMLImageElement>(".titlebar__avatar-img")!;
   let currentAuth: AuthSnapshot = { loggedIn: false };
@@ -673,11 +662,9 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
       avatarImg.src = auth.avatarUrl;
       avatarButton.hidden = false;
       loginButton.hidden = true;
-      moreButton.hidden = true;
     } else {
       avatarButton.hidden = true;
       loginButton.hidden = false;
-      moreButton.hidden = false;
     }
   }
 

@@ -879,14 +879,6 @@
   display: block;
 }
 
-
-.titlebar__button--more {
-  width: 32px;
-  height: 30px;
-  border-radius: 50%;
-  margin-left: 2px;
-}
-
 .titlebar__suggestion-item--history .titlebar__suggestion-icon {
   color: #a0a0a0;
 }

@@ -296,11 +296,6 @@ pub fn yt_navigate(window: Window, action: String) -> AppResult<()> {
         .get_webview(YOUTUBE_WEBVIEW_LABEL)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
 
-    if action == "login" || action == "auth" {
-        let app = window.app_handle().clone();
-        return crate::window::layout::open_auth_window(&app);
-    }
-
     let script = match action.as_str() {
         "back" => "history.back()".to_string(),
         "forward" => "history.forward()".to_string(),

@@ -86,7 +86,22 @@ fn setup_menu_window(app: &mut App, webview_data_dir: &Path) -> AppResult<()> {
     .visible(false)
     .shadow(false)
     .background_color(Color(0, 0, 0, 0))
-    .data_directory(webview_data_dir.join("ui"));
+    .data_directory(webview_data_dir.join("yt"))
+    .on_page_load(move |webview, payload| {
+        if let tauri::webview::PageLoadEvent::Finished = payload.event() {
+            let url_str = payload.url().as_str();
+            if url_str.starts_with("https://www.youtube.com") && !url_str.contains("ServiceLogin") {
+                let app = webview.app_handle().clone();
+                let _ = webview.hide();
+                let _ = webview.eval("location.href = 'menu.html';");
+                if let Some(main) = app.get_window(MAIN_WINDOW_LABEL) {
+                    if let Some(yt) = main.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+                        let _ = yt.eval("location.href = 'https://www.youtube.com';");
+                    }
+                }
+            }
+        }
+    });
 
     let menu_window = builder.build()?;
 
@@ -640,55 +655,6 @@ pub fn open_pip(app: &tauri::AppHandle) -> AppResult<()> {
         }
     }
 
-    Ok(())
-}
-
-pub const AUTH_WINDOW_LABEL: &str = "auth";
-
-pub fn open_auth_window(app: &tauri::AppHandle) -> AppResult<()> {
-    if let Some(existing) = app.get_webview_window(AUTH_WINDOW_LABEL) {
-        let _ = existing.show();
-        let _ = existing.set_focus();
-        return Ok(());
-    }
-
-    let url: tauri::Url = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com"
-        .parse()
-        .map_err(|e| AppError::Validation(format!("{e}")))?;
-
-    let state = app
-        .try_state::<AppState>()
-        .ok_or_else(|| AppError::State("app not ready".into()))?;
-    let webview_data_dir = state.paths.webview_data_dir.join("yt");
-
-    let builder = tauri::WebviewWindowBuilder::new(
-        app,
-        AUTH_WINDOW_LABEL,
-        tauri::WebviewUrl::External(url),
-    )
-    .title("Fazer login no Google")
-    .inner_size(500.0, 680.0)
-    .min_inner_size(400.0, 500.0)
-    .center()
-    .resizable(true)
-    .decorations(true)
-    .data_directory(webview_data_dir)
-    .on_page_load(move |webview, payload| {
-        if let tauri::webview::PageLoadEvent::Finished = payload.event() {
-            let url_str = payload.url().as_str();
-            if url_str.starts_with("https://www.youtube.com") && !url_str.contains("ServiceLogin") {
-                let app = webview.app_handle().clone();
-                let _ = webview.close();
-                if let Some(main) = app.get_window(MAIN_WINDOW_LABEL) {
-                    if let Some(yt) = main.get_webview(YOUTUBE_WEBVIEW_LABEL) {
-                        let _ = yt.eval("location.href = 'https://www.youtube.com';");
-                    }
-                }
-            }
-        }
-    });
-
-    builder.build()?;
     Ok(())
 }
 

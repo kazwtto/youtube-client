@@ -444,46 +444,6 @@
   min-width: 0;
 }
 
-.settings__status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 18px;
-  margin: -8px 0 0;
-  color: var(--color-fg-muted);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.settings__status[data-state="idle"] {
-  display: none;
-}
-
-.settings__status-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-fg-muted);
-  transition: background var(--motion-fast) ease;
-}
-
-.settings__status[data-state="saving"] .settings__status-dot {
-  background: var(--color-warning);
-}
-
-.settings__status[data-state="saved"] .settings__status-dot {
-  background: var(--color-success);
-}
-
-.settings__status[data-state="error"] {
-  color: var(--color-danger);
-}
-
-.settings__status[data-state="error"] .settings__status-dot {
-  background: var(--color-danger);
-}
-
 .yt-section {
   padding: 0 0 20px;
   border-bottom: 1px solid var(--color-border);

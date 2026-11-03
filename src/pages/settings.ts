@@ -64,11 +64,6 @@ export async function renderSettings(host: HTMLElement, initialTab = "appearance
         </nav>
 
         <form class="settings" id="settings-form" novalidate>
-          <p class="settings__status" id="settings-status" role="status" aria-live="polite" data-state="idle">
-            <span class="settings__status-dot" aria-hidden="true"></span>
-            <span></span>
-          </p>
-
           <section class="yt-section" id="settings-appearance" data-tab-panel="appearance">
             <h2 class="yt-section__title">${t("settings.appearance")}</h2>
             <p class="yt-section__hint">${t("settings.appearanceHint")}</p>
@@ -287,8 +282,6 @@ export async function renderSettings(host: HTMLElement, initialTab = "appearance
   )!;
 
   const enhancers: SelectEnhancer[] = [];
-  const status = host.querySelector<HTMLElement>("#settings-status")!;
-  const statusText = status.querySelector<HTMLElement>("span:last-child")!;
   let languageAtLoad = normalizeLanguage(current.general.language);
 
   const syncForm = (value: AppSettings): void => {
@@ -326,14 +319,8 @@ export async function renderSettings(host: HTMLElement, initialTab = "appearance
   }
 
   let timer: number | undefined;
-  let statusTimer: number | undefined;
   let saving = false;
   let pending = false;
-
-  const setStatus = (message: string, state: "idle" | "saving" | "saved" | "error"): void => {
-    statusText.textContent = message;
-    status.dataset.state = state;
-  };
 
   const collect = (): AppSettings => ({
     ...current,
@@ -384,15 +371,9 @@ export async function renderSettings(host: HTMLElement, initialTab = "appearance
     }
 
     saving = true;
-    setStatus(t("settings.saving"), "saving");
 
     try {
       current = await api.settingsUpdate(next);
-      setStatus(t("settings.saved"), "saved");
-      if (statusTimer !== undefined) {
-        window.clearTimeout(statusTimer);
-      }
-      statusTimer = window.setTimeout(() => setStatus("", "idle"), 1600);
 
       const language = normalizeLanguage(current.general.language);
       if (language !== languageAtLoad) {
@@ -403,7 +384,7 @@ export async function renderSettings(host: HTMLElement, initialTab = "appearance
         return;
       }
     } catch (error) {
-      setStatus(t("common.error", { error: String(error) }), "error");
+      console.error(error);
     } finally {
       saving = false;
       if (pending) {

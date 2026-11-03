@@ -29,7 +29,6 @@ export function createShell(root: HTMLElement): void {
   loading.innerHTML = `
     <div class="yt-loading__inner" role="status" aria-live="polite">
       <span class="yt-loading__spinner" aria-hidden="true"></span>
-      <p class="yt-loading__label" data-state="loading">${t("youtube.loading")}</p>
       <p class="yt-loading__label" data-state="failed" hidden>${t("youtube.failed")}</p>
       <button type="button" class="yt-button yt-button--filled yt-loading__retry" hidden>
         ${t("youtube.retry")}
@@ -130,28 +129,26 @@ export function createShell(root: HTMLElement): void {
   });
 
   let youtubeVisibleState: boolean | null = null;
-  const updateYoutubeVisible = async (visible: boolean): Promise<void> => {
+  const setYoutubeVisibility = (visible: boolean): void => {
     if (youtubeVisibleState === visible) {
       return;
     }
     youtubeVisibleState = visible;
-    await setYoutubeVisible(visible);
+    void setYoutubeVisible(visible);
   };
 
-  router.onNavigate(async (route) => {
+  router.onNavigate((route) => {
     currentRoute = route.id;
     titlebar.setActive(route.id);
     syncLoading();
 
     if (route.id === "home") {
-      // Show the site first and hide the local page right after, so the window
-      // never paints an empty frame between the two.
-      await updateYoutubeVisible(true);
       content.dataset.youtube = "true";
+      setYoutubeVisibility(true);
       void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
     } else {
       content.dataset.youtube = "false";
-      await updateYoutubeVisible(false);
+      setYoutubeVisibility(false);
     }
   });
 

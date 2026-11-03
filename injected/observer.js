@@ -47,6 +47,110 @@
     );
   }
 
+  let cachedAccountName = null;
+  let cachedAccountHandle = null;
+  let cachedAvatarUrl = null;
+  let accountFetchInProgress = false;
+
+  function fetchAccountMenu() {
+    if (cachedAccountName || accountFetchInProgress) {
+      return;
+    }
+    if (!window.ytcfg || typeof window.ytcfg.get !== "function") {
+      return;
+    }
+    const apiKey = window.ytcfg.get("INNERTUBE_API_KEY");
+    const context = window.ytcfg.get("INNERTUBE_CONTEXT");
+    if (!apiKey || !context) {
+      return;
+    }
+
+    accountFetchInProgress = true;
+    fetch("/youtubei/v1/account/account_menu?key=" + apiKey, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context }),
+      credentials: "include",
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        accountFetchInProgress = false;
+        try {
+          const popup =
+            data && data.actions && data.actions[0] && data.actions[0].openPopupAction && data.actions[0].openPopupAction.popup && data.actions[0].openPopupAction.popup.multiPageMenuRenderer;
+          const header = popup && popup.header && popup.header.activeAccountHeaderRenderer;
+          if (header) {
+            const name =
+              (header.accountName && header.accountName.simpleText) ||
+              (header.accountName && header.accountName.runs && header.accountName.runs[0] && header.accountName.runs[0].text);
+            const handle =
+              (header.channelHandle && header.channelHandle.simpleText) ||
+              (header.channelHandle && header.channelHandle.runs && header.channelHandle.runs[0] && header.channelHandle.runs[0].text);
+            const thumbs = header.avatar && header.avatar.thumbnails;
+            const avatar = Array.isArray(thumbs) && thumbs.length > 0 ? thumbs[thumbs.length - 1].url : null;
+            if (name) {
+              cachedAccountName = name;
+            }
+            if (handle) {
+              cachedAccountHandle = handle;
+            }
+            if (avatar) {
+              cachedAvatarUrl = avatar;
+            }
+            reportAuth();
+          }
+        } catch (_) {}
+      })
+      .catch(() => {
+        accountFetchInProgress = false;
+      });
+  }
+
+  function extractNameFromDOM() {
+    const selectors = [
+      "button#avatar-btn",
+      "#avatar-btn",
+      "ytd-topbar-menu-button-renderer button",
+      "button.yt-spec-button-shape-next--avatar",
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const label = el.getAttribute("aria-label") || el.getAttribute("title") || "";
+      if (label) {
+        const m = label.match(/(?:Conta do Google|Google Account|Conta da Google)[^:]*:\s*([^(\n]+)/i);
+        if (m && m[1] && m[1].trim() && m[1].trim().toLowerCase() !== "youtube") {
+          return m[1].trim();
+        }
+        const m2 = label.match(/(?:Foto do perfil de|Avatar de|Profile photo of)\s*([^(\n]+)/i);
+        if (m2 && m2[1] && m2[1].trim() && m2[1].trim().toLowerCase() !== "youtube") {
+          return m2[1].trim();
+        }
+      }
+      const img = el.querySelector("img");
+      if (img) {
+        const alt = img.getAttribute("alt") || "";
+        const mAlt = alt.match(/(?:Foto do perfil de|Profile photo of|Avatar of)\s*([^(\n]+)/i);
+        if (mAlt && mAlt[1] && mAlt[1].trim() && mAlt[1].trim().toLowerCase() !== "youtube") {
+          return mAlt[1].trim();
+        }
+        if (alt && !alt.toLowerCase().includes("avatar") && !alt.toLowerCase().includes("foto") && alt.toLowerCase() !== "youtube") {
+          return alt.trim();
+        }
+      }
+    }
+
+    const guideLink = document.querySelector("ytd-guide-entry-renderer a[href*='/@']");
+    if (guideLink) {
+      const text = (guideLink.textContent || "").trim();
+      if (text && text.toLowerCase() !== "youtube" && text.toLowerCase() !== "seu canal" && text.toLowerCase() !== "your channel") {
+        return text;
+      }
+    }
+
+    return null;
+  }
+
   function reportAuth() {
     if (!canInvoke()) {
       return;
@@ -116,12 +220,12 @@
     const initData = extractFromInitialData();
     const cfgData = extractFromYtcfg();
 
-    let resolvedAvatar = (initData && initData.avatar) || (cfgData && cfgData.avatar) || domAvatar || null;
+    let resolvedAvatar = cachedAvatarUrl || (initData && initData.avatar) || (cfgData && cfgData.avatar) || domAvatar || null;
     if (resolvedAvatar && resolvedAvatar.startsWith("//")) {
       resolvedAvatar = "https:" + resolvedAvatar;
     }
 
-    let resolvedName = (initData && initData.name) || (cfgData && cfgData.name);
+    let resolvedName = cachedAccountName || (initData && initData.name) || (cfgData && cfgData.name) || extractNameFromDOM();
     if (!resolvedName) {
       const nameEl = document.querySelector(
         "#channel-name, #account-name, ytd-multi-page-menu-renderer #account-name, ytd-active-account-header-renderer #account-name",
@@ -134,7 +238,7 @@
       }
     }
 
-    let resolvedHandle = initData && initData.handle;
+    let resolvedHandle = cachedAccountHandle || (initData && initData.handle);
     if (!resolvedHandle) {
       const handleEl = document.querySelector(
         "#channel-handle, ytd-multi-page-menu-renderer #channel-handle, ytd-active-account-header-renderer #channel-handle",
@@ -159,6 +263,10 @@
         displayName: resolvedName || null,
         handle: resolvedHandle || null,
       };
+
+      if (!resolvedName) {
+        fetchAccountMenu();
+      }
     } else if (isYtcfgLoggedIn === false || loginLink) {
       authState = { loggedIn: false, avatarUrl: null, displayName: null, handle: null };
     }

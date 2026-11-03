@@ -447,26 +447,19 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
     const isLogged = currentAuth.loggedIn;
     const menuWidth = 260;
-    const menuHeight = isLogged ? 430 : 230;
-
-    const PAD_X = 24;
-    const PAD_TOP = 8;
-    const PAD_BOTTOM = 36;
-
-    const windowWidth = menuWidth + (PAD_X * 2);
-    const windowHeight = menuHeight + PAD_TOP + PAD_BOTTOM;
+    const menuHeight = isLogged ? 386 : 228;
 
     const screenRight = (outerPos.x / scale) + rect.right;
     const screenBottom = (outerPos.y / scale) + rect.bottom;
 
-    const targetX = Math.round(screenRight - menuWidth - PAD_X);
-    const targetY = Math.round(screenBottom + 6 - PAD_TOP);
+    const targetX = Math.round(screenRight - menuWidth);
+    const targetY = Math.round(screenBottom + 6);
 
     await api.showContextMenu({
       x: targetX,
       y: targetY,
-      width: windowWidth,
-      height: windowHeight,
+      width: menuWidth,
+      height: menuHeight,
       auth: currentAuth,
     });
   };

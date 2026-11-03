@@ -106,9 +106,7 @@ function mount(): void {
         const h = menu.offsetHeight;
         const w = menu.offsetWidth || 260;
         if (h > 0) {
-          const winW = w + 48;
-          const winH = h + 44;
-          void getCurrentWindow().setSize(new LogicalSize(winW, winH));
+          void getCurrentWindow().setSize(new LogicalSize(w, h));
         }
       }
     });

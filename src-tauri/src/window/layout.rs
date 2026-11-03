@@ -77,7 +77,7 @@ fn setup_menu_window(app: &mut App, webview_data_dir: &Path) -> AppResult<()> {
         tauri::WebviewUrl::App("menu.html".into()),
     )
     .title("Menu")
-    .inner_size(308.0, 274.0)
+    .inner_size(260.0, 228.0)
     .decorations(false)
     .transparent(true)
     .always_on_top(true)
@@ -106,8 +106,8 @@ fn setup_menu_window(app: &mut App, webview_data_dir: &Path) -> AppResult<()> {
 
         if let Ok(hwnd) = menu_window.hwnd() {
             unsafe {
-                // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_DONOTROUND = 1
-                let corner_pref: u32 = 1;
+                // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
+                let corner_pref: u32 = 2;
                 let _ = DwmSetWindowAttribute(
                     hwnd.0 as *mut c_void,
                     33,

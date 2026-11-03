@@ -474,9 +474,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
   const handleContextMenuAction = (action: string): void => {
     switch (action) {
       case "login":
-      case "switch-account":
-        actions.onNavigate("home");
-        void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
+        void api.ytNavigate("login");
         break;
       case "logout":
         actions.onNavigate("home");
@@ -591,7 +589,11 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         break;
 
       case "toggle-auth-menu":
-        toggleAuthMenu();
+        if (currentAuth.loggedIn) {
+          toggleAuthMenu();
+        } else {
+          void api.ytNavigate("login");
+        }
         break;
 
       case "minimize":

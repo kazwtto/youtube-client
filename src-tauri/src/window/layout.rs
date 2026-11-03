@@ -51,9 +51,6 @@ pub fn setup(
         .maximized(window_settings.maximized)
         .build()?;
 
-    let theme = current_theme(&window);
-    add_youtube(&window, webview_data_dir, theme.as_ref())?;
-
     let ui = WebviewBuilder::new(UI_WEBVIEW_LABEL, WebviewUrl::App("index.html".into()))
         .data_directory(webview_data_dir.join("ui"))
         .background_color(Color(0, 0, 0, 0));
@@ -62,6 +59,9 @@ pub fn setup(
         LogicalPosition::new(0.0, 0.0),
         LogicalSize::new(INITIAL_WIDTH, INITIAL_HEIGHT),
     )?;
+
+    let theme = current_theme(&window);
+    add_youtube(&window, webview_data_dir, theme.as_ref())?;
 
     layout_webviews(&window)?;
     observe_window(&window);
@@ -375,26 +375,9 @@ pub fn layout_webviews(window: &Window) -> AppResult<()> {
     let width = size.width as f64 / scale;
     let height = size.height as f64 / scale;
 
-    let (youtube_visible, youtube_loading, ui_elevated) = window
-        .app_handle()
-        .try_state::<crate::core::state::AppState>()
-        .map(|s| {
-            (
-                s.youtube_visible.load(std::sync::atomic::Ordering::SeqCst),
-                s.youtube_loading.load(std::sync::atomic::Ordering::SeqCst),
-                s.ui_elevated.load(std::sync::atomic::Ordering::SeqCst),
-            )
-        })
-        .unwrap_or((true, false, false));
-
     if let Some(ui) = window.get_webview(UI_WEBVIEW_LABEL) {
         ui.set_position(LogicalPosition::new(0.0, 0.0))?;
-        let ui_height = if !youtube_visible || youtube_loading || ui_elevated {
-            height.max(0.0)
-        } else {
-            TITLEBAR_HEIGHT
-        };
-        ui.set_size(LogicalSize::new(width.max(0.0), ui_height))?;
+        ui.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)))?;
     }
 
     if let Some(youtube) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
@@ -657,6 +640,55 @@ pub fn open_pip(app: &tauri::AppHandle) -> AppResult<()> {
         }
     }
 
+    Ok(())
+}
+
+pub const AUTH_WINDOW_LABEL: &str = "auth";
+
+pub fn open_auth_window(app: &tauri::AppHandle) -> AppResult<()> {
+    if let Some(existing) = app.get_webview_window(AUTH_WINDOW_LABEL) {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+
+    let url: tauri::Url = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com"
+        .parse()
+        .map_err(|e| AppError::Validation(format!("{e}")))?;
+
+    let state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| AppError::State("app not ready".into()))?;
+    let webview_data_dir = state.paths.webview_data_dir.join("yt");
+
+    let builder = tauri::WebviewWindowBuilder::new(
+        app,
+        AUTH_WINDOW_LABEL,
+        tauri::WebviewUrl::External(url),
+    )
+    .title("Fazer login no Google")
+    .inner_size(500.0, 680.0)
+    .min_inner_size(400.0, 500.0)
+    .center()
+    .resizable(true)
+    .decorations(true)
+    .data_directory(webview_data_dir)
+    .on_page_load(move |webview, payload| {
+        if let tauri::webview::PageLoadEvent::Finished = payload.event() {
+            let url_str = payload.url().as_str();
+            if url_str.starts_with("https://www.youtube.com") && !url_str.contains("ServiceLogin") {
+                let app = webview.app_handle().clone();
+                let _ = webview.close();
+                if let Some(main) = app.get_window(MAIN_WINDOW_LABEL) {
+                    if let Some(yt) = main.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+                        let _ = yt.eval("location.href = 'https://www.youtube.com';");
+                    }
+                }
+            }
+        }
+    });
+
+    builder.build()?;
     Ok(())
 }
 

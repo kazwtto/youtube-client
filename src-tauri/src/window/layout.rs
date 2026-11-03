@@ -149,7 +149,7 @@ fn setup_auth_modal_window(app: &mut App, webview_data_dir: &Path) -> AppResult<
         .transparent(true)
         .always_on_top(true)
         .skip_taskbar(true)
-        .resizable(false)
+        .resizable(true)
         .visible(false)
         .shadow(false)
         .background_color(Color(0, 0, 0, 0))
@@ -246,10 +246,20 @@ fn setup_auth_modal_window(app: &mut App, webview_data_dir: &Path) -> AppResult<
 pub fn sync_auth_modal_position(main: &Window) {
     if let Some(modal) = main.app_handle().get_window(AUTH_MODAL_WINDOW_LABEL) {
         if modal.is_visible().unwrap_or(false) {
-            if let Ok(pos) = main.outer_position() {
-                let _ = modal.set_position(pos);
+            let is_max = main.is_maximized().unwrap_or(false);
+            if is_max {
+                let _ = modal.maximize();
+            } else {
+                let _ = modal.unmaximize();
+                if let Ok(pos) = main.inner_position() {
+                    let _ = modal.set_position(pos);
+                }
+                if let Ok(size) = main.inner_size() {
+                    let _ = modal.set_size(size);
+                }
             }
-            if let (Ok(scale), Ok(size)) = (main.scale_factor(), main.inner_size()) {
+
+            if let (Ok(scale), Ok(size)) = (modal.scale_factor(), modal.inner_size()) {
                 let scale = scale.max(0.0001);
                 let width = size.width as f64 / scale;
                 let height = size.height as f64 / scale;
@@ -259,8 +269,8 @@ pub fn sync_auth_modal_position(main: &Window) {
                 let card_y = ((height - card_h) / 2.0).round();
                 let header_h = 44.0;
 
-                let _ = modal.set_size(tauri::LogicalSize::new(width, height));
                 if let Some(ui) = modal.get_webview(AUTH_UI_WEBVIEW_LABEL) {
+                    let _ = ui.set_position(tauri::LogicalPosition::new(0.0, 0.0));
                     let _ = ui.set_size(tauri::LogicalSize::new(width, height));
                 }
                 if let Some(web) = modal.get_webview(AUTH_WEB_WEBVIEW_LABEL) {

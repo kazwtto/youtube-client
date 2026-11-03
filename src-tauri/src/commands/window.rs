@@ -434,9 +434,26 @@ pub fn open_auth_modal(app: tauri::AppHandle) -> AppResult<()> {
         .get_window(crate::window::layout::AUTH_MODAL_WINDOW_LABEL)
         .ok_or_else(|| AppError::State("auth modal window not found".into()))?;
 
-    let scale = main.scale_factor()?.max(0.0001);
-    let pos = main.outer_position()?;
-    let size = main.inner_size()?;
+    let is_max = main.is_maximized().unwrap_or(false);
+    if is_max {
+        let _ = modal.maximize();
+    } else {
+        let _ = modal.unmaximize();
+        if let Ok(pos) = main.inner_position() {
+            let _ = modal.set_position(pos);
+        }
+        if let Ok(size) = main.inner_size() {
+            let _ = modal.set_size(size);
+        }
+    }
+
+    let scale = modal
+        .scale_factor()
+        .unwrap_or_else(|_| main.scale_factor().unwrap_or(1.0))
+        .max(0.0001);
+    let size = modal
+        .inner_size()
+        .unwrap_or_else(|_| main.inner_size().unwrap());
 
     let width = size.width as f64 / scale;
     let height = size.height as f64 / scale;
@@ -446,9 +463,6 @@ pub fn open_auth_modal(app: tauri::AppHandle) -> AppResult<()> {
     let card_x = ((width - card_w) / 2.0).round();
     let card_y = ((height - card_h) / 2.0).round();
     let header_h = 44.0;
-
-    let _ = modal.set_position(pos);
-    let _ = modal.set_size(tauri::LogicalSize::new(width, height));
 
     if let Some(auth_ui) = modal.get_webview(crate::window::layout::AUTH_UI_WEBVIEW_LABEL) {
         let _ = auth_ui.set_position(tauri::LogicalPosition::new(0.0, 0.0));

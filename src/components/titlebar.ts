@@ -589,11 +589,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         break;
 
       case "toggle-auth-menu":
-        if (currentAuth.loggedIn) {
-          toggleAuthMenu();
-        } else {
-          void api.ytNavigate("login");
-        }
+        void toggleAuthMenu();
         break;
 
       case "minimize":

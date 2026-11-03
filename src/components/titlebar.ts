@@ -473,11 +473,6 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
   const handleContextMenuAction = (action: string): void => {
     switch (action) {
-      case "login":
-      case "switch-account":
-        actions.onNavigate("home");
-        void api.ytNavigate("url:https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com");
-        break;
       case "logout":
         actions.onNavigate("home");
         void api.ytNavigate("url:https://www.youtube.com/logout");
@@ -566,7 +561,11 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
 
     const routeButton = target.closest<HTMLElement>("[data-route]");
     if (routeButton?.dataset.route) {
-      actions.onNavigate(routeButton.dataset.route as RouteId);
+      const targetRoute = routeButton.dataset.route as RouteId;
+      actions.onNavigate(targetRoute);
+      if (targetRoute === "home") {
+        void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
+      }
       return;
     }
 

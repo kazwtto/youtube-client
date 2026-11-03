@@ -245,6 +245,10 @@ fn add_youtube(
 
                     match payload.event() {
                         tauri::webview::PageLoadEvent::Started => {
+                            if payload.url().as_str().contains("accounts.google.com") {
+                                let _ = webview.eval("location.href = 'https://www.youtube.com';");
+                                return;
+                            }
                             set_loading(&app, true);
                             let _ = webview.hide();
                             let _ = app.emit(crate::core::events::YOUTUBE_LOADING, true);

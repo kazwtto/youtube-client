@@ -366,6 +366,9 @@ pub fn yt_navigate(window: Window, action: String) -> AppResult<()> {
         }
         act if act.starts_with("url:") => {
             let target = &act[4..];
+            if target.contains("accounts.google.com") {
+                return Ok(());
+            }
             format!("location.href = '{}'", target.replace('\'', "\\'"))
         }
         act if act.starts_with("eval:") => {

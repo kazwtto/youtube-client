@@ -60,6 +60,6 @@ extensions/*
 # Local planning (not versioned)
 planning/
 
-# Conversation exports are local working material, never project source
+# Local research and conversation exports stay outside source control
 thread-*.md
-.cloud-attachments/imported-conversation-*.json
+.cloud-attachments/

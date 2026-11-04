@@ -62,3 +62,4 @@ planning/
 
 # Conversation exports are local working material, never project source
 thread-*.md
+.cloud-attachments/imported-conversation-*.json

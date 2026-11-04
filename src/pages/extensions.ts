@@ -199,7 +199,7 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
     }
   }
 
-  async function installFolder(): Promise<void> {
+  async function install(): Promise<void> {
     if (installing) {
       return;
     }
@@ -228,8 +228,13 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
     try {
       const installed = await api.extensionsInstall(source);
       await refresh();
-      const names = installed.map((ext) => ext.name).join(", ");
-      notify(t("extensions.installed", { name: names || t("extensions.title") }));
+      if (installed.length === 1) {
+        notify(t("extensions.installed", { name: installed[0].name }));
+      } else if (installed.length > 1) {
+        notify(`${installed.length} extensões instaladas com sucesso!`);
+      } else {
+        notify(t("extensions.emptyHint"));
+      }
     } catch (error) {
       notify(t("common.error", { error: String(error) }), "error");
     } finally {
@@ -248,10 +253,14 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
 
   dialog.querySelector<HTMLButtonElement>("[data-pick]")?.addEventListener("click", () => {
     dialog.close();
-    void installFolder();
+    void install();
   });
 
   void listen("extensions://changed", () => {
+    void refresh();
+  });
+
+  host.addEventListener("page:activated", () => {
     void refresh();
   });
 

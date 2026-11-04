@@ -22,7 +22,7 @@ pub async fn extensions_install(
     state: State<'_, AppState>,
     source: String,
 ) -> AppResult<Vec<ExtensionSummary>> {
-    let summaries = state.extensions.install_all(Path::new(&source))?;
+    let summaries = state.extensions.install(Path::new(&source))?;
     refresh(&window, &state);
     Ok(summaries)
 }

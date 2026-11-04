@@ -625,12 +625,12 @@
 
 .titlebar:not(.titlebar--integrated-masthead) .titlebar__tabs,
 .titlebar:not(.titlebar--integrated-masthead) .titlebar__icons {
-  order: 2;
-  margin-left: 6px;
+  order: 3;
+  margin-left: 0;
 }
 
 .titlebar:not(.titlebar--integrated-masthead) .titlebar__spacer--right {
-  order: 3;
+  order: 2;
   flex: 1;
 }
 

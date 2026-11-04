@@ -255,9 +255,5 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
     void refresh();
   });
 
-  host.addEventListener("page:activated", () => {
-    void refresh();
-  });
-
   await refresh();
 }

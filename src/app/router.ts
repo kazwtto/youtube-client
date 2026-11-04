@@ -38,12 +38,12 @@ export class Router {
     }
 
     this.current = id;
-    this.host.replaceChildren();
 
     for (const listener of this.listeners) {
       await listener(route);
     }
 
+    this.host.replaceChildren();
     await route.render(this.host);
   }
 }

@@ -73,6 +73,7 @@ function removeSearchHistoryQuery(query: string): void {
 export function createTitlebar(actions: TitlebarActions): Titlebar {
   const bar = document.createElement("header");
   bar.className = "titlebar";
+  bar.dataset.tauriDragRegion = "deep";
 
   const tabButtons = TABS.map(
     (tab) => `

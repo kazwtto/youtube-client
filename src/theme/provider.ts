@@ -14,6 +14,7 @@ export function applyTheme(theme: ResolvedTheme): void {
   root.style.setProperty("color-scheme", theme.effectiveMode);
   root.dataset.theme = theme.effectiveMode;
   root.dataset.backdrop = theme.backdrop;
+  root.dataset.motion = theme.motion ? "on" : "off";
 }
 
 /// Loads the saved theme and listens for changes emitted by the backend.

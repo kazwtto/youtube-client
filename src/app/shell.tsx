@@ -1,7 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
+import { createSignal, type Accessor } from "solid-js";
+import { render } from "solid-js/web";
 
 import { createTitlebar } from "../components/titlebar";
-import { onLanguageChange, t } from "../i18n";
+import { t } from "../i18n";
 import { api, type AppSettings, type AuthSnapshot, type RpcStatus } from "../lib/api";
 import { renderExtensions } from "../pages/extensions";
 import { renderHistory } from "../pages/history";
@@ -14,6 +16,21 @@ import { Router, type RouteId } from "./router";
 /// the only moment the retry action is offered.
 const LOAD_FAILED_MS = 30_000;
 
+function LoadingOverlay(props: { visible: Accessor<boolean>; failed: Accessor<boolean>; retry: () => void }) {
+  return (
+    <div class="yt-loading" hidden={!props.visible()}>
+      <div class="yt-loading__inner" role="status" aria-live="polite">
+        <span class="yt-loading__spinner" aria-hidden="true" />
+        <p class="yt-loading__label" hidden={props.failed()}>{t("youtube.loading")}</p>
+        <p class="yt-loading__label" hidden={!props.failed()}>{t("youtube.failed")}</p>
+        <button type="button" class="yt-button yt-button--filled yt-loading__retry" hidden={!props.failed()} onClick={props.retry}>
+          {t("youtube.retry")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function createShell(root: HTMLElement): void {
   root.replaceChildren();
 
@@ -24,18 +41,8 @@ export function createShell(root: HTMLElement): void {
   content.className = "content";
 
   const loading = document.createElement("div");
-  loading.className = "yt-loading";
-  loading.hidden = true;
-  loading.innerHTML = `
-    <div class="yt-loading__inner" role="status" aria-live="polite">
-      <span class="yt-loading__spinner" aria-hidden="true"></span>
-      <p class="yt-loading__label" data-state="loading">${t("youtube.loading")}</p>
-      <p class="yt-loading__label" data-state="failed" hidden>${t("youtube.failed")}</p>
-      <button type="button" class="yt-button yt-button--filled yt-loading__retry" hidden>
-        ${t("youtube.retry")}
-      </button>
-    </div>
-  `;
+  const [loadingVisible, setLoadingVisible] = createSignal(false);
+  const [loadingFailed, setLoadingFailed] = createSignal(false);
 
   const router = new Router(content);
   router
@@ -66,13 +73,9 @@ export function createShell(root: HTMLElement): void {
   let slowTimer: number | undefined;
   let currentRoute: RouteId = "home";
 
-  const label = loading.querySelector<HTMLElement>('[data-state="loading"]')!;
-  const failed = loading.querySelector<HTMLElement>('[data-state="failed"]')!;
-  const retry = loading.querySelector<HTMLButtonElement>(".yt-loading__retry")!;
-
   const syncLoading = (): void => {
     const visible = currentRoute === "home" && youtubeLoading;
-    loading.hidden = !visible;
+    setLoadingVisible(visible);
 
     if (slowTimer !== undefined) {
       window.clearTimeout(slowTimer);
@@ -80,26 +83,26 @@ export function createShell(root: HTMLElement): void {
     }
 
     if (!visible) {
-      label.hidden = false;
-      failed.hidden = true;
-      retry.hidden = true;
+      setLoadingFailed(false);
       return;
     }
 
     // Only a load that never finishes offers a retry; a normal load just shows
     // the spinner until the page is ready.
     slowTimer = window.setTimeout(() => {
-      label.hidden = true;
-      failed.hidden = false;
-      retry.hidden = false;
+      setLoadingFailed(true);
     }, LOAD_FAILED_MS);
   };
 
-  retry.addEventListener("click", () => {
-    youtubeLoading = true;
-    syncLoading();
-    void api.ytNavigate("reload");
-  });
+  render(() => <LoadingOverlay
+    visible={loadingVisible}
+    failed={loadingFailed}
+    retry={() => {
+      youtubeLoading = true;
+      syncLoading();
+      void api.ytNavigate("reload");
+    }}
+  />, loading);
 
   void api
     .settingsGet()
@@ -114,10 +117,6 @@ export function createShell(root: HTMLElement): void {
     titlebar.setMastheadIntegrated(event.payload.general.integrateMasthead);
   }).catch(() => undefined);
 
-  onLanguageChange(() => {
-    titlebar.updateLanguage();
-  });
-
   void listen<AuthSnapshot>("youtube://auth", (event) => {
     titlebar.setAuth(event.payload);
   }).catch(() => undefined);
@@ -129,7 +128,9 @@ export function createShell(root: HTMLElement): void {
     console.warn(t("shell.loadingEventsError", { error: String(error) }));
   });
 
+  let routeUpdate = 0;
   router.onNavigate(async (route) => {
+    const update = ++routeUpdate;
     currentRoute = route.id;
     titlebar.setActive(route.id);
     syncLoading();
@@ -138,11 +139,16 @@ export function createShell(root: HTMLElement): void {
       // Show the site first and hide the local page right after, so the window
       // never paints an empty frame between the two.
       await setYoutubeVisible(true);
+      if (update !== routeUpdate) {
+        await setYoutubeVisible(router.currentId === "home");
+        return;
+      }
       content.dataset.youtube = "true";
       void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
     } else {
       content.dataset.youtube = "false";
       await setYoutubeVisible(false);
+      if (update !== routeUpdate) await setYoutubeVisible(router.currentId === "home");
     }
   });
 

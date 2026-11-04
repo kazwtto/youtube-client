@@ -10,8 +10,10 @@ export type RouteListener = (route: RouteDefinition) => void | Promise<void>;
 export class Router {
   private readonly routes = new Map<RouteId, RouteDefinition>();
   private readonly containers = new Map<RouteId, HTMLElement>();
+  private readonly pendingRenders = new Map<RouteId, Promise<void>>();
   private readonly listeners = new Set<RouteListener>();
   private current: RouteId = "home";
+  private navigation = 0;
 
   constructor(private readonly host: HTMLElement) {}
 
@@ -34,14 +36,15 @@ export class Router {
 
   async navigate(id: RouteId): Promise<void> {
     const route = this.routes.get(id);
-    if (!route) {
-      return;
-    }
+    if (!route) return;
 
+    const navigation = ++this.navigation;
+    const changedRoute = id !== this.current;
     this.current = id;
 
     for (const listener of this.listeners) {
       await listener(route);
+      if (navigation !== this.navigation) return;
     }
 
     // Toggle container visibility without destroying DOM to eliminate flashes
@@ -56,10 +59,35 @@ export class Router {
       targetContainer.dataset.routeId = id;
       this.containers.set(id, targetContainer);
       this.host.append(targetContainer);
-      await route.render(targetContainer);
+      const rendering = Promise.resolve().then(() => route.render(targetContainer!)).then(() => undefined);
+      this.pendingRenders.set(id, rendering);
+      try {
+        await rendering;
+      } catch (error) {
+        if (this.pendingRenders.get(id) === rendering) this.pendingRenders.delete(id);
+        if (this.containers.get(id) === targetContainer) this.containers.delete(id);
+        targetContainer.remove();
+        throw error;
+      }
+      if (this.pendingRenders.get(id) === rendering) this.pendingRenders.delete(id);
+      if (navigation !== this.navigation) {
+        targetContainer.hidden = true;
+        return;
+      }
     } else {
-      targetContainer.hidden = false;
+      const rendering = this.pendingRenders.get(id);
+      if (rendering) {
+        await rendering;
+        if (navigation !== this.navigation) return;
+      }
       targetContainer.dispatchEvent(new CustomEvent("page:activated", { bubbles: true }));
+    }
+
+    targetContainer.hidden = false;
+    if (id !== "home" && changedRoute) {
+      targetContainer.classList.remove("page-container--enter");
+      void targetContainer.offsetWidth;
+      targetContainer.classList.add("page-container--enter");
     }
   }
 }

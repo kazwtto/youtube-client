@@ -60,6 +60,7 @@ pub struct ResolvedTheme {
     pub effective_mode: ThemeMode,
     pub backdrop: Backdrop,
     pub accent: String,
+    pub motion: bool,
     pub tokens: BTreeMap<String, String>,
 }
 

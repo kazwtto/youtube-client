@@ -84,6 +84,7 @@ export interface ResolvedTheme {
   effectiveMode: "light" | "dark";
   backdrop: Backdrop;
   accent: string;
+  motion: boolean;
   tokens: Record<string, string>;
 }
 

@@ -1,3 +1,5 @@
+import type { JSX } from "solid-js";
+
 // Launcher icons (SVGs imported directly from src/assets/icons/launcher/)
 import backSvg from "../assets/icons/launcher/back.svg?raw";
 import checkSvg from "../assets/icons/launcher/check.svg?raw";
@@ -90,6 +92,13 @@ export type YoutubeIconName =
   | "shortcuts"
   | "help";
 
+export interface IconProps {
+  name: IconName | YoutubeIconName;
+  size?: number;
+  class?: string;
+  style?: Partial<CSSStyleDeclaration>;
+}
+
 const LAUNCHER_ICONS: Record<IconName, string> = {
   back: backSvg,
   forward: forwardSvg,
@@ -138,67 +147,23 @@ const YOUTUBE_ICONS: Record<YoutubeIconName, string> = {
   help: ytHelpSvg,
 };
 
-function applySvgAttributes(
-  rawSvg: string,
-  options?: { size?: number; className?: string; style?: string },
-): string {
-  let svg = rawSvg.trim();
-  const svgTagMatch = svg.match(/^<svg\b([^>]*)>/i);
-  if (!svgTagMatch) return svg;
+const parsedIcons = new Map<string, SVGSVGElement>();
 
-  let attrs = svgTagMatch[1];
+export function Icon(props: IconProps): JSX.Element {
+  const raw = LAUNCHER_ICONS[props.name as IconName] ?? YOUTUBE_ICONS[props.name as YoutubeIconName];
+  let template = parsedIcons.get(raw);
 
-  if (options?.className) {
-    if (/(^|\s)class="[^"]*"/.test(attrs)) {
-      attrs = attrs.replace(/(^|\s)class="[^"]*"/, `$1class="${options.className}"`);
-    } else {
-      attrs = ` class="${options.className}"${attrs}`;
-    }
+  if (!template) {
+    const parsed = new DOMParser().parseFromString(raw, "image/svg+xml");
+    template = parsed.documentElement as unknown as SVGSVGElement;
+    parsedIcons.set(raw, template);
   }
 
-  if (options?.size !== undefined) {
-    if (/(^|\s)width="[^"]*"/.test(attrs)) {
-      attrs = attrs.replace(/(^|\s)width="[^"]*"/, `$1width="${options.size}"`);
-    } else {
-      attrs = ` width="${options.size}"${attrs}`;
-    }
-    if (/(^|\s)height="[^"]*"/.test(attrs)) {
-      attrs = attrs.replace(/(^|\s)height="[^"]*"/, `$1height="${options.size}"`);
-    } else {
-      attrs = ` height="${options.size}"${attrs}`;
-    }
-  }
-
-  if (options?.style) {
-    if (/(^|\s)style="[^"]*"/.test(attrs)) {
-      attrs = attrs.replace(/(^|\s)style="[^"]*"/, `$1style="${options.style}"`);
-    } else {
-      attrs = ` style="${options.style}"${attrs}`;
-    }
-  }
-
-  return `<svg${attrs}>${svg.slice(svgTagMatch[0].length)}`;
-}
-
-/// Dedicated component helper for launcher vector icons.
-export function icon(name: IconName, size = 16, className = "icon"): string {
-  const raw = LAUNCHER_ICONS[name];
-  if (!raw) {
-    return "";
-  }
-  return applySvgAttributes(raw, { size, className });
-}
-
-/// Dedicated component helper for authentic YouTube masthead and menu icons.
-export function ytIcon(
-  name: YoutubeIconName,
-  size = 20,
-  className?: string,
-  style?: string,
-): string {
-  const raw = YOUTUBE_ICONS[name];
-  if (!raw) {
-    return "";
-  }
-  return applySvgAttributes(raw, { size, className, style });
+  const svg = template.cloneNode(true) as SVGSVGElement;
+  const size = props.size ?? 16;
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  if (props.class) svg.setAttribute("class", props.class);
+  if (props.style) Object.assign(svg.style, props.style);
+  return svg;
 }

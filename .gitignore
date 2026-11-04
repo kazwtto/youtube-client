@@ -57,9 +57,7 @@ extensions/*
 *.tmp
 *.bak
 
-# Local planning (not versioned)
+# Local research and conversation exports stay outside source control
 planning/
-
-# Conversation exports are local working material, never project source
 thread-*.md
-.cloud-attachments/imported-conversation-*.json
+.cloud-attachments/

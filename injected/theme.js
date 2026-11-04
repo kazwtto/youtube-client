@@ -38,6 +38,15 @@
    * ---------------------------------------------------------------------- */
 
   const STYLE_ID = "ytdesktop-theme";
+  const MOTION_STYLE_ID = "ytdesktop-motion";
+  const MOTION_RESET = `
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  `;
 
   /// Opacity of each material layer, applied to the palette's `elevated` tone.
   const ALPHA = {
@@ -464,7 +473,120 @@
       );
     }
 
-    return rules.join("\n");
+    return `${rules.join("\n")}\n${motionCss()}`;
+  }
+
+  function motionCss() {
+    return `
+      html[data-motion="off"] *,
+      html[data-motion="off"] *::before,
+      html[data-motion="off"] *::after { ${MOTION_RESET} }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { ${MOTION_RESET} }
+      }
+    `;
+  }
+
+  function shadowMotionCss() {
+    return `
+      :host-context(html[data-motion="off"]) *,
+      :host-context(html[data-motion="off"]) *::before,
+      :host-context(html[data-motion="off"]) *::after { ${MOTION_RESET} }
+      @media (prefers-reduced-motion: reduce) {
+        :host, :host *, :host *::before, :host *::after { ${MOTION_RESET} }
+      }
+    `;
+  }
+
+  function addShadowMotionStyle(shadowRoot) {
+    if (shadowRoot.querySelector(`#${MOTION_STYLE_ID}`)) {
+      return;
+    }
+    const style = document.createElement("style");
+    style.id = MOTION_STYLE_ID;
+    style.textContent = shadowMotionCss();
+    shadowRoot.appendChild(style);
+  }
+
+  function scanShadowRoots(node) {
+    if (node instanceof Element && node.shadowRoot) {
+      addShadowMotionStyle(node.shadowRoot);
+      scanShadowRoots(node.shadowRoot);
+    }
+    if (typeof node.querySelectorAll !== "function") {
+      return;
+    }
+    for (const child of node.querySelectorAll("*")) {
+      if (child.shadowRoot) {
+        addShadowMotionStyle(child.shadowRoot);
+        scanShadowRoots(child.shadowRoot);
+      }
+    }
+  }
+
+  function ensureMotionSupport() {
+    if (window.__ytdesktopMotionObserver) {
+      return;
+    }
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const motionDisabled = function () {
+      return document.documentElement.dataset.motion === "off" || reducedMotion.matches;
+    };
+
+    let shadowHookInstalled = false;
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "attachShadow");
+      const attachShadow = Element.prototype.attachShadow;
+      Object.defineProperty(Element.prototype, "attachShadow", {
+        ...descriptor,
+        value: function (init) {
+          const shadowRoot = attachShadow.call(this, init);
+          addShadowMotionStyle(shadowRoot);
+          return shadowRoot;
+        },
+      });
+      shadowHookInstalled = true;
+    } catch {
+      // The observer below still catches open shadow roots if the hook is unavailable.
+    }
+
+    const animate = Element.prototype.animate;
+    if (typeof animate === "function") {
+      try {
+        const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "animate");
+        Object.defineProperty(Element.prototype, "animate", {
+          ...descriptor,
+          value: function (keyframes, options) {
+            if (!motionDisabled()) {
+              return animate.call(this, keyframes, options);
+            }
+            const reducedOptions = typeof options === "number"
+              ? 0
+              : { ...(options || {}), delay: 0, duration: 0, iterations: 1 };
+            return animate.call(this, keyframes, reducedOptions);
+          },
+        });
+      } catch {
+        // CSS animations and transitions are still disabled by the injected styles.
+      }
+    }
+
+    scanShadowRoots(document.documentElement);
+    if (shadowHookInstalled) {
+      window.__ytdesktopMotionObserver = true;
+      return;
+    }
+
+    const observer = new MutationObserver(function (mutations) {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          scanShadowRoots(node);
+        }
+      }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    window.__ytdesktopMotionObserver = observer;
   }
 
   /* ---------------------------------------------------------------------- *
@@ -500,6 +622,8 @@
 
     window.__ytdesktopLastTheme = theme;
     window.__ytdesktopThemeMode = theme.effectiveMode === "dark" ? "dark" : "light";
+    const root = document.documentElement;
+    root.dataset.motion = theme.motion === false ? "off" : "on";
 
     let style = document.getElementById(STYLE_ID);
     if (!style) {
@@ -518,8 +642,8 @@
     }
 
     ensureObserver();
+    ensureMotionSupport();
 
-    const root = document.documentElement;
     if (window.__ytdesktopThemeMode === "dark") {
       if (!root.hasAttribute("dark")) {
         root.setAttribute("dark", "");

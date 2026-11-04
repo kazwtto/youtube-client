@@ -33,7 +33,7 @@
     "{display:flex;align-items:center;justify-content:flex-end;gap:2px;box-sizing:border-box;padding:0;margin:0}" +
     "#" +
     CONTROLS_ID +
-    " button{display:grid;place-items:center;box-sizing:border-box;width:var(--pip-button,28px);height:var(--pip-button,28px);margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:#fff;cursor:pointer;transition:background 120ms ease;-webkit-appearance:none}" +
+    " button{display:grid;place-items:center;box-sizing:border-box;width:var(--pip-button,28px);height:var(--pip-button,28px);margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:#fff;cursor:pointer;transition:background 140ms ease-out;-webkit-appearance:none}" +
     "#" +
     CONTROLS_ID +
     " button:hover{background:rgba(255,255,255,.18)}" +
@@ -74,7 +74,7 @@
     " .ytdesktop-g-restore::before{content:\"\";position:absolute;left:0;top:2px;width:100%;height:2px;background:currentColor}" +
     /* Smooth overlay transitions and quick autohide */
     "#player-controls, .ytPlayerControlsContainerHost, .ytp-chrome-bottom, .ytp-chrome-top, .ytp-gradient-bottom, .ytp-gradient-top {" +
-    "  transition: opacity 220ms ease, visibility 220ms ease !important;" +
+    "  transition: opacity 160ms ease-out, visibility 160ms ease-out !important;" +
     "}" +
     "body.ytdesktop-autohide #player-controls," +
     "body.ytdesktop-autohide .ytPlayerControlsContainerHost," +

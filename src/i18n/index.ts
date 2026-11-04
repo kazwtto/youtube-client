@@ -1,4 +1,5 @@
 import { api } from "../lib/api";
+import { createSignal } from "solid-js";
 import { en, type TranslationKey } from "./locales/en";
 import { ptBR } from "./locales/pt-BR";
 
@@ -16,7 +17,7 @@ const dictionaries: Record<Language, Record<TranslationKey, string>> = {
   "pt-BR": ptBR,
 };
 
-let current: Language = "en";
+const [current, setCurrent] = createSignal<Language>("en");
 
 type LanguageListener = (lang: Language) => void;
 const languageListeners = new Set<LanguageListener>();
@@ -31,20 +32,20 @@ export function normalizeLanguage(value: string | null | undefined): Language {
 }
 
 export function getLanguage(): Language {
-  return current;
+  return current();
 }
 
 export function getLocale(): string {
-  return current;
+  return current();
 }
 
 export function setLanguage(value: string): void {
   const next = normalizeLanguage(value);
-  current = next;
-  document.documentElement.lang = current;
+  setCurrent(next);
+  document.documentElement.lang = next;
   for (const listener of languageListeners) {
     try {
-      listener(current);
+      listener(next);
     } catch (e) {
       console.error("language listener error:", e);
     }
@@ -64,7 +65,7 @@ export function t(
   key: TranslationKey,
   params?: Record<string, string | number>,
 ): string {
-  const template = dictionaries[current][key] ?? en[key];
+  const template = dictionaries[current()][key] ?? en[key];
 
   if (!params) {
     return template;

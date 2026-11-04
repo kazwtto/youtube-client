@@ -45,6 +45,7 @@ impl ThemeService {
             },
             backdrop: effective.backdrop,
             accent: settings.accent.clone(),
+            motion: settings.motion,
             tokens: tokens::build(palette, &effective, effective_dark),
         })
     }

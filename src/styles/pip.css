@@ -134,6 +134,16 @@ body {
   animation: pip-spin 800ms linear infinite;
 }
 
+:root[data-motion="off"] .pip__spinner {
+  animation-duration: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pip__spinner {
+    animation-duration: 0s;
+  }
+}
+
 @keyframes pip-spin {
   to {
     transform: rotate(360deg);

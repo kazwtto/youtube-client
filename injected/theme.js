@@ -524,15 +524,34 @@
     }
   }
 
-  function ensureMotionSupport() {
-    if (window.__ytdesktopMotionObserver) {
-      return;
+  function cancelActiveAnimations() {
+    if (typeof document.getAnimations !== "function") return;
+    for (const animation of document.getAnimations()) {
+      try {
+        animation.cancel();
+      } catch (_) {
+        // Keep disabling the remaining animations if one cannot be canceled.
+      }
     }
+  }
 
+  function ensureMotionSupport() {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const motionDisabled = function () {
       return document.documentElement.dataset.motion === "off" || reducedMotion.matches;
     };
+
+    if (motionDisabled()) cancelActiveAnimations();
+
+    if (window.__ytdesktopMotionObserver) {
+      return;
+    }
+
+    if (typeof reducedMotion.addEventListener === "function") {
+      reducedMotion.addEventListener("change", function (event) {
+        if (event.matches) cancelActiveAnimations();
+      });
+    }
 
     let shadowHookInstalled = false;
     try {

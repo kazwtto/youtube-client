@@ -98,6 +98,8 @@ impl Default for HistorySettings {
 pub struct ExtensionSettings {
     /// Extensions disabled by the user. Extensions are enabled by default.
     pub disabled: BTreeSet<String>,
+    /// Remembered custom folder chosen by the user for automatic scanning.
+    pub custom_folder: Option<PathBuf>,
 }
 
 /// How the sections are shown in the title bar.

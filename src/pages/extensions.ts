@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { icon } from "../components/icons";
 import { t } from "../i18n";
@@ -20,6 +21,11 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
       </header>
 
       <div id="extensions-list" class="ext-list"></div>
+
+      <div class="ext-dropzone-overlay" id="extensions-dropzone" hidden>
+        ${icon("folder", 36)}
+        <span>Solte os arquivos .zip ou pastas de extensões aqui para instalar</span>
+      </div>
 
       <p class="ext-snackbar" id="extensions-status" role="status" aria-live="polite" hidden></p>
     </section>
@@ -242,6 +248,69 @@ export async function renderExtensions(host: HTMLElement): Promise<void> {
       installButton.disabled = false;
     }
   }
+
+  async function installFiles(paths: string[]): Promise<void> {
+    if (paths.length === 0 || installing) return;
+    installing = true;
+    installButton.disabled = true;
+    notify(t("extensions.installing"), "busy");
+
+    let totalInstalled = 0;
+    const errors: string[] = [];
+
+    for (const p of paths) {
+      try {
+        const res = await api.extensionsInstall(p);
+        totalInstalled += res.length;
+      } catch (err) {
+        errors.push(`${p}: ${String(err)}`);
+      }
+    }
+
+    await refresh();
+    installing = false;
+    installButton.disabled = false;
+
+    if (totalInstalled > 0) {
+      notify(`${totalInstalled} extensão(ões) adicionada(s) com sucesso!`);
+    } else if (errors.length > 0) {
+      notify(errors.join("; "), "error");
+    } else {
+      notify("Nenhuma extensão válida encontrada nos arquivos.", "error");
+    }
+  }
+
+  const dropzone = host.querySelector<HTMLElement>("#extensions-dropzone");
+
+  try {
+    void getCurrentWebview().onDragDropEvent((event) => {
+      if (!dropzone) return;
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        dropzone.hidden = false;
+      } else if (event.payload.type === "leave") {
+        dropzone.hidden = true;
+      } else if (event.payload.type === "drop") {
+        dropzone.hidden = true;
+        const paths = event.payload.paths;
+        if (Array.isArray(paths) && paths.length > 0) {
+          void installFiles(paths);
+        }
+      }
+    });
+  } catch (err) {
+    console.warn("Could not register onDragDropEvent", err);
+  }
+
+  host.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (dropzone) dropzone.hidden = false;
+  });
+
+  host.addEventListener("dragleave", (e) => {
+    if (dropzone && (e.target === dropzone || e.relatedTarget === null)) {
+      dropzone.hidden = true;
+    }
+  });
 
   installButton.addEventListener("click", () => {
     dialog.showModal();

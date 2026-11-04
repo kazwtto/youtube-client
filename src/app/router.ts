@@ -9,6 +9,7 @@ export type RouteListener = (route: RouteDefinition) => void | Promise<void>;
 
 export class Router {
   private readonly routes = new Map<RouteId, RouteDefinition>();
+  private readonly containers = new Map<RouteId, HTMLElement>();
   private readonly listeners = new Set<RouteListener>();
   private current: RouteId = "home";
 
@@ -43,7 +44,22 @@ export class Router {
       await listener(route);
     }
 
-    this.host.replaceChildren();
-    await route.render(this.host);
+    // Toggle container visibility without destroying DOM to eliminate flashes
+    for (const [routeId, container] of this.containers.entries()) {
+      container.hidden = routeId !== id;
+    }
+
+    let targetContainer = this.containers.get(id);
+    if (!targetContainer) {
+      targetContainer = document.createElement("div");
+      targetContainer.className = `page-container page-container--${id}`;
+      targetContainer.dataset.routeId = id;
+      this.containers.set(id, targetContainer);
+      this.host.append(targetContainer);
+      await route.render(targetContainer);
+    } else {
+      targetContainer.hidden = false;
+      targetContainer.dispatchEvent(new CustomEvent("page:activated", { bubbles: true }));
+    }
   }
 }

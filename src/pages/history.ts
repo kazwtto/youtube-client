@@ -474,5 +474,9 @@ export async function renderHistory(host: HTMLElement): Promise<void> {
     })();
   });
 
+  host.addEventListener("page:activated", () => {
+    void load();
+  });
+
   await load();
 }

@@ -12,7 +12,21 @@ use crate::window::layout::reload_youtube;
 
 #[tauri::command]
 pub fn extensions_list(state: State<'_, AppState>) -> AppResult<Vec<ExtensionSummary>> {
-    let disabled = disabled_set(&state)?;
+    let (disabled, custom_folder) = {
+        let settings = state
+            .settings
+            .read()
+            .map_err(|_| AppError::State("settings unavailable".into()))?
+            .snapshot();
+        (settings.extensions.disabled, settings.extensions.custom_folder)
+    };
+
+    if let Some(ref folder) = custom_folder {
+        if folder.is_dir() {
+            let _ = state.extensions.sync_folder(folder);
+        }
+    }
+
     state.extensions.list(&disabled)
 }
 
@@ -22,7 +36,27 @@ pub async fn extensions_install(
     state: State<'_, AppState>,
     source: String,
 ) -> AppResult<Vec<ExtensionSummary>> {
-    let summaries = state.extensions.install(Path::new(&source))?;
+    let source_path = Path::new(&source);
+    let summaries = state.extensions.install(source_path)?;
+
+    if source_path.is_dir() {
+        if let Ok(mut store) = state.settings.write() {
+            let mut settings = store.snapshot();
+            settings.extensions.custom_folder = Some(source_path.to_path_buf());
+            let _ = store.replace(settings);
+        }
+    } else if let Some(parent) = source_path.parent() {
+        if parent.is_dir() && parent != Path::new("") {
+            if let Ok(mut store) = state.settings.write() {
+                let mut settings = store.snapshot();
+                if settings.extensions.custom_folder.is_none() {
+                    settings.extensions.custom_folder = Some(parent.to_path_buf());
+                    let _ = store.replace(settings);
+                }
+            }
+        }
+    }
+
     refresh(&window, &state);
     Ok(summaries)
 }

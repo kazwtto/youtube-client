@@ -29,6 +29,7 @@ export function createShell(root: HTMLElement): void {
   loading.innerHTML = `
     <div class="yt-loading__inner" role="status" aria-live="polite">
       <span class="yt-loading__spinner" aria-hidden="true"></span>
+      <p class="yt-loading__label" data-state="loading">${t("youtube.loading")}</p>
       <p class="yt-loading__label" data-state="failed" hidden>${t("youtube.failed")}</p>
       <button type="button" class="yt-button yt-button--filled yt-loading__retry" hidden>
         ${t("youtube.retry")}

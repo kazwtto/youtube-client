@@ -397,10 +397,7 @@ fn add_youtube(
 
                     match payload.event() {
                         tauri::webview::PageLoadEvent::Started => {
-                            let url_str = payload.url().as_str();
-                            if url_str.contains("accounts.google.com/ServiceLogin")
-                                || url_str.contains("accounts.google.com/v3/signin")
-                            {
+                            if payload.url().as_str().contains("accounts.google.com") {
                                 let _ = webview.eval("location.href = 'https://www.youtube.com';");
                                 return;
                             }

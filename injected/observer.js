@@ -52,10 +52,50 @@
   let cachedAvatarUrl = null;
   let accountFetchInProgress = false;
 
-  function fetchAccountMenu() {
-    if (cachedAccountName || accountFetchInProgress) {
+  function parseAccountString(str) {
+    if (!str || typeof str !== "string") return null;
+    str = str.trim();
+    const emailMatch = str.match(/(?:^|[:,\n\s])\s*([^\n,:()]+?)\s*(?:\n|\s)*\(([^)]+@[^)]+)\)/);
+    if (emailMatch) {
+      const name = emailMatch[1].trim();
+      const email = emailMatch[2].trim();
+      if (name && name.toLowerCase() !== "youtube") {
+        return { name, handle: email };
+      }
+    }
+    const hasPrefix = /^(?:Conta do Google|Google Account|Conta da Google|Foto do perfil|Profile photo)[^:]*:\s*/i.test(str);
+    if (!hasPrefix) {
+      return null;
+    }
+    const clean = str.replace(/^(?:Conta do Google|Google Account|Conta da Google|Foto do perfil|Profile photo)[^:]*:\s*/i, "").trim();
+    if (clean && clean.toLowerCase() !== "youtube" && !clean.toLowerCase().includes("avatar")) {
+      return { name: clean, handle: null };
+    }
+    return null;
+  }
+
+  let accountFetchAttempts = 0;
+
+  async function buildAuthHeader() {
+    try {
+      const match = document.cookie.match(/(?:^|;\s*)(?:__Secure-3PAPISID|SAPISID)=([^;]+)/);
+      if (!match) return null;
+      const ts = Math.floor(Date.now() / 1000);
+      const origin = window.location.origin;
+      const data = new TextEncoder().encode(ts + " " + match[1] + " " + origin);
+      const digest = await crypto.subtle.digest("SHA-1", data);
+      const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+      return "SAPISIDHASH " + ts + "_" + hex;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function fetchAccountMenu() {
+    if (cachedAccountName || accountFetchInProgress || accountFetchAttempts >= 8) {
       return;
     }
+    accountFetchAttempts += 1;
     if (!window.ytcfg || typeof window.ytcfg.get !== "function") {
       return;
     }
@@ -66,9 +106,22 @@
     }
 
     accountFetchInProgress = true;
-    fetch("/youtubei/v1/account/account_menu?key=" + apiKey, {
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Origin": window.location.origin,
+      "X-Goog-AuthUser": String(window.ytcfg.get("SESSION_INDEX") || 0),
+    };
+    const authHeader = await buildAuthHeader();
+    if (authHeader) {
+      headers.Authorization = authHeader;
+    }
+    const pageId = window.ytcfg.get("DELEGATED_SESSION_ID");
+    if (pageId) {
+      headers["X-Goog-PageId"] = pageId;
+    }
+    fetch("/youtubei/v1/account/account_menu?prettyPrint=false&key=" + apiKey, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ context }),
       credentials: "include",
     })
@@ -77,7 +130,12 @@
         accountFetchInProgress = false;
         try {
           const popup =
-            data && data.actions && data.actions[0] && data.actions[0].openPopupAction && data.actions[0].openPopupAction.popup && data.actions[0].openPopupAction.popup.multiPageMenuRenderer;
+            data &&
+            data.actions &&
+            data.actions[0] &&
+            data.actions[0].openPopupAction &&
+            data.actions[0].openPopupAction.popup &&
+            data.actions[0].openPopupAction.popup.multiPageMenuRenderer;
           const header = popup && popup.header && popup.header.activeAccountHeaderRenderer;
           if (header) {
             const name =
@@ -88,15 +146,9 @@
               (header.channelHandle && header.channelHandle.runs && header.channelHandle.runs[0] && header.channelHandle.runs[0].text);
             const thumbs = header.avatar && header.avatar.thumbnails;
             const avatar = Array.isArray(thumbs) && thumbs.length > 0 ? thumbs[thumbs.length - 1].url : null;
-            if (name) {
-              cachedAccountName = name;
-            }
-            if (handle) {
-              cachedAccountHandle = handle;
-            }
-            if (avatar) {
-              cachedAvatarUrl = avatar;
-            }
+            if (name) cachedAccountName = name;
+            if (handle) cachedAccountHandle = handle;
+            if (avatar) cachedAvatarUrl = avatar;
             reportAuth();
           }
         } catch (_) {}
@@ -104,6 +156,46 @@
       .catch(() => {
         accountFetchInProgress = false;
       });
+  }
+
+  function extractFromInitialData() {
+    try {
+      const data = window.ytInitialData;
+      const buttons =
+        data &&
+        data.topbar &&
+        data.topbar.desktopTopbarRenderer &&
+        data.topbar.desktopTopbarRenderer.topbarButtons;
+      if (Array.isArray(buttons)) {
+        for (const btn of buttons) {
+          const menuBtn = btn.topbarMenuButtonRenderer;
+          if (!menuBtn) continue;
+
+          let avatar = null;
+          const thumbs = menuBtn.avatar && menuBtn.avatar.thumbnails;
+          if (Array.isArray(thumbs) && thumbs.length > 0) {
+            avatar = thumbs[thumbs.length - 1].url;
+          }
+
+          let parsed = null;
+          if (menuBtn.tooltip) {
+            parsed = parseAccountString(menuBtn.tooltip);
+          }
+          if (!parsed && menuBtn.accessibility && menuBtn.accessibility.accessibilityData) {
+            parsed = parseAccountString(menuBtn.accessibility.accessibilityData.label);
+          }
+
+          if (avatar || parsed) {
+            return {
+              avatar,
+              name: parsed ? parsed.name : null,
+              handle: parsed ? parsed.handle : null,
+            };
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   function extractNameFromDOM() {
@@ -117,37 +209,19 @@
       const el = document.querySelector(sel);
       if (!el) continue;
       const label = el.getAttribute("aria-label") || el.getAttribute("title") || "";
-      if (label) {
-        const m = label.match(/(?:Conta do Google|Google Account|Conta da Google)[^:]*:\s*([^(\n]+)/i);
-        if (m && m[1] && m[1].trim() && m[1].trim().toLowerCase() !== "youtube") {
-          return m[1].trim();
-        }
-        const m2 = label.match(/(?:Foto do perfil de|Avatar de|Profile photo of)\s*([^(\n]+)/i);
-        if (m2 && m2[1] && m2[1].trim() && m2[1].trim().toLowerCase() !== "youtube") {
-          return m2[1].trim();
-        }
+      const parsed = parseAccountString(label);
+      if (parsed && parsed.name) {
+        return parsed;
       }
       const img = el.querySelector("img");
       if (img) {
         const alt = img.getAttribute("alt") || "";
-        const mAlt = alt.match(/(?:Foto do perfil de|Profile photo of|Avatar of)\s*([^(\n]+)/i);
-        if (mAlt && mAlt[1] && mAlt[1].trim() && mAlt[1].trim().toLowerCase() !== "youtube") {
-          return mAlt[1].trim();
-        }
-        if (alt && !alt.toLowerCase().includes("avatar") && !alt.toLowerCase().includes("foto") && alt.toLowerCase() !== "youtube") {
-          return alt.trim();
+        const parsedAlt = parseAccountString(alt);
+        if (parsedAlt && parsedAlt.name) {
+          return parsedAlt;
         }
       }
     }
-
-    const guideLink = document.querySelector("ytd-guide-entry-renderer a[href*='/@']");
-    if (guideLink) {
-      const text = (guideLink.textContent || "").trim();
-      if (text && text.toLowerCase() !== "youtube" && text.toLowerCase() !== "seu canal" && text.toLowerCase() !== "your channel") {
-        return text;
-      }
-    }
-
     return null;
   }
 
@@ -166,94 +240,23 @@
       }
     } catch (_) {}
 
-    function extractFromInitialData() {
-      try {
-        const data = window.ytInitialData;
-        const buttons = data && data.topbar && data.topbar.desktopTopbarRenderer && data.topbar.desktopTopbarRenderer.topbarButtons;
-        if (Array.isArray(buttons)) {
-          for (const btn of buttons) {
-            const menuBtn = btn.topbarMenuButtonRenderer;
-            if (!menuBtn) continue;
-            const thumbs = menuBtn.avatar && menuBtn.avatar.thumbnails;
-            const avatar = Array.isArray(thumbs) && thumbs.length > 0 ? thumbs[thumbs.length - 1].url : null;
-            let name = null;
-            let h = null;
-            const header = menuBtn.menuRenderer && menuBtn.menuRenderer.multiPageMenuRenderer && menuBtn.menuRenderer.multiPageMenuRenderer.header && menuBtn.menuRenderer.multiPageMenuRenderer.header.activeAccountHeaderRenderer;
-            if (header) {
-              name = (header.accountName && header.accountName.simpleText) || (header.accountName && header.accountName.runs && header.accountName.runs[0] && header.accountName.runs[0].text) || null;
-              h = (header.channelHandle && header.channelHandle.simpleText) || (header.channelHandle && header.channelHandle.runs && header.channelHandle.runs[0] && header.channelHandle.runs[0].text) || null;
-            }
-            if (avatar || name || h) {
-              return { avatar, name, handle: h };
-            }
-          }
-        }
-      } catch (_) {}
-      return null;
-    }
-
-    function extractFromYtcfg() {
-      try {
-        if (window.ytcfg && typeof window.ytcfg.get === "function") {
-          const user = window.ytcfg.get("INNERTUBE_CONTEXT") && window.ytcfg.get("INNERTUBE_CONTEXT").user;
-          const avatar = window.ytcfg.get("USER_AVATAR") || (window.ytcfg.data_ && window.ytcfg.data_.USER_AVATAR) || null;
-          return {
-            avatar: avatar,
-            name: (user && user.onBehalfOfUser) || null,
-          };
-        }
-      } catch (_) {}
-      return null;
-    }
-
-    let domAvatar = null;
-    const avatarImg = document.querySelector(
-      "button#avatar-btn img, #avatar-btn img, ytd-topbar-menu-button-renderer img, yt-avatar-shape img, yt-img-shadow#avatar img, button.yt-spec-button-shape-next--avatar img, ytd-masthead #avatar-btn img, #masthead #avatar-btn img",
-    );
-    if (avatarImg) {
-      const src = avatarImg.src || avatarImg.currentSrc || avatarImg.getAttribute("src");
-      if (src && !src.startsWith("data:") && src !== "about:blank") {
-        domAvatar = src;
-      }
-    }
-
     const initData = extractFromInitialData();
-    const cfgData = extractFromYtcfg();
+    const domParsed = extractNameFromDOM();
 
-    let resolvedAvatar = cachedAvatarUrl || (initData && initData.avatar) || (cfgData && cfgData.avatar) || domAvatar || null;
+    const avatarImg = document.querySelector(
+      "button#avatar-btn img, #avatar-btn img, ytd-topbar-menu-button-renderer img, yt-avatar-shape img, yt-img-shadow#avatar img, button.yt-spec-button-shape-next--avatar img, ytd-masthead #avatar-btn img",
+    );
+    const avatarSrc = avatarImg ? (avatarImg.src || avatarImg.currentSrc || avatarImg.getAttribute("src")) : null;
+
+    let resolvedAvatar = cachedAvatarUrl || (initData && initData.avatar) || (avatarSrc && avatarSrc.startsWith("http") ? avatarSrc : null);
     if (resolvedAvatar && resolvedAvatar.startsWith("//")) {
       resolvedAvatar = "https:" + resolvedAvatar;
     }
 
-    let resolvedName = cachedAccountName || (initData && initData.name) || (cfgData && cfgData.name) || extractNameFromDOM();
-    if (!resolvedName) {
-      const nameEl = document.querySelector(
-        "#channel-name, #account-name, ytd-multi-page-menu-renderer #account-name, ytd-active-account-header-renderer #account-name",
-      );
-      if (nameEl) {
-        const text = (nameEl.textContent || "").trim();
-        if (text && text.toLowerCase() !== "youtube") {
-          resolvedName = text;
-        }
-      }
-    }
+    let resolvedName = cachedAccountName || (initData && initData.name) || (domParsed && domParsed.name);
+    let resolvedHandle = cachedAccountHandle || (initData && initData.handle) || (domParsed && domParsed.handle);
 
-    let resolvedHandle = cachedAccountHandle || (initData && initData.handle);
-    if (!resolvedHandle) {
-      const handleEl = document.querySelector(
-        "#channel-handle, ytd-multi-page-menu-renderer #channel-handle, ytd-active-account-header-renderer #channel-handle",
-      );
-      if (handleEl) {
-        const text = (handleEl.textContent || "").trim();
-        if (text) {
-          resolvedHandle = text;
-        }
-      }
-    }
-
-    const loginLink = document.querySelector(
-      "#buttons a[href*='ServiceLogin'], ytd-button-renderer a[href*='ServiceLogin']",
-    );
+    const loginLink = document.querySelector("#buttons a[href*='ServiceLogin'], ytd-button-renderer a[href*='ServiceLogin']");
 
     let authState = null;
     if (isYtcfgLoggedIn === true || Boolean(resolvedAvatar) || (isYtcfgLoggedIn !== false && !loginLink && Boolean(resolvedName))) {
@@ -264,7 +267,7 @@
         handle: resolvedHandle || null,
       };
 
-      if (!resolvedName) {
+      if (!cachedAccountName) {
         fetchAccountMenu();
       }
     } else if (isYtcfgLoggedIn === false || loginLink) {

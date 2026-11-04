@@ -197,8 +197,8 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
         title="${t("titlebar.account")}"
         hidden
       >
-        <img class="titlebar__avatar-img" alt="${t("titlebar.account")}" src="" hidden />
-        <span class="titlebar__avatar-fallback" aria-hidden="true">${ytIcon("account", 18)}</span>
+        <img class="titlebar__avatar-img" alt="${t("titlebar.account")}" src="" referrerpolicy="no-referrer" />
+        <span class="titlebar__avatar-fallback" aria-hidden="true" style="display:none">${ytIcon("account", 20)}</span>
       </button>
     </div>
 
@@ -223,7 +223,7 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
   const loginButton = bar.querySelector<HTMLButtonElement>('.titlebar__login-button')!;
   const avatarButton = bar.querySelector<HTMLButtonElement>('.titlebar__avatar-button')!;
   const avatarImg = bar.querySelector<HTMLImageElement>(".titlebar__avatar-img")!;
-  const avatarFallback = bar.querySelector<HTMLElement>(".titlebar__avatar-fallback")!;
+  const avatarFallback = bar.querySelector<HTMLElement>(".titlebar__avatar-fallback");
   let currentAuth: AuthSnapshot = { loggedIn: false };
   let currentItems: { text: string; isHistory: boolean }[] = [];
   let selectedIndex = -1;
@@ -663,17 +663,21 @@ export function createTitlebar(actions: TitlebarActions): Titlebar {
   function setAuth(auth: AuthSnapshot): void {
     currentAuth = auth;
     if (auth.loggedIn) {
+      if (auth.displayName) {
+        avatarButton.title = auth.displayName;
+      }
       if (auth.avatarUrl) {
+        avatarImg.referrerPolicy = "no-referrer";
         avatarImg.src = auth.avatarUrl;
-        avatarImg.hidden = false;
-        if (avatarFallback) avatarFallback.hidden = true;
+        avatarImg.style.display = "block";
+        if (avatarFallback) avatarFallback.style.display = "none";
         avatarImg.onerror = () => {
-          avatarImg.hidden = true;
-          if (avatarFallback) avatarFallback.hidden = false;
+          avatarImg.style.display = "none";
+          if (avatarFallback) avatarFallback.style.display = "flex";
         };
       } else {
-        avatarImg.hidden = true;
-        if (avatarFallback) avatarFallback.hidden = false;
+        avatarImg.style.display = "none";
+        if (avatarFallback) avatarFallback.style.display = "flex";
       }
       avatarButton.hidden = false;
       loginButton.hidden = true;

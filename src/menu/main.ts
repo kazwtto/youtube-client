@@ -36,8 +36,8 @@ function mount(): void {
         <div class="yt-context-menu">
           <div class="yt-context-menu__header">
             <div class="yt-context-menu__avatar-container">
-              ${auth.avatarUrl ? `<img class="yt-context-menu__header-avatar" src="${auth.avatarUrl}" alt="" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex';" />` : ""}
-              <span class="yt-context-menu__header-avatar--fallback" ${auth.avatarUrl ? 'style="display:none"' : ""}>
+              ${auth.avatarUrl ? `<img class="yt-context-menu__header-avatar" src="${auth.avatarUrl}" referrerpolicy="no-referrer" alt="" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex';" />` : ""}
+              <span class="yt-context-menu__header-avatar--fallback" style="${auth.avatarUrl ? 'display:none' : 'display:flex'}">
                 ${ytIcon("account", 24)}
               </span>
             </div>

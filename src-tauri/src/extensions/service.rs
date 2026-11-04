@@ -157,6 +157,11 @@ impl ExtensionService {
             .ok_or_else(|| AppError::Other("failed to read the installed extension".into()))
     }
 
+    /// Scans a folder for any .zip files or extension subdirectories, installing any that are present.
+    pub fn sync_folder(&self, source: &Path) -> Vec<ExtensionSummary> {
+        self.install(source).unwrap_or_default()
+    }
+
     /// Installs extensions from a file (e.g. .zip) or folder (including all subfolders and .zip archives found inside).
     pub fn install(&self, source: &Path) -> AppResult<Vec<ExtensionSummary>> {
         // Direct zip file

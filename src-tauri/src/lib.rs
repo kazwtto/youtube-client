@@ -122,19 +122,24 @@ fn sync_extensions(handle: &tauri::AppHandle, window: &tauri::Window, webview_da
         return;
     };
 
-    let disabled = state
+    let (disabled, custom_folder) = state
         .settings
         .read()
-        .map(|store| store.snapshot().extensions.disabled)
+        .map(|store| {
+            let snap = store.snapshot();
+            (snap.extensions.disabled, snap.extensions.custom_folder)
+        })
         .unwrap_or_default();
+
+    if let Some(ref folder) = custom_folder {
+        if folder.is_dir() {
+            let _ = state.extensions.sync_folder(folder);
+        }
+    }
 
     let Ok(list) = state.extensions.list(&disabled) else {
         return;
     };
-
-    if list.is_empty() {
-        return;
-    }
 
     if !extensions::apply_runtime(window, &list) {
         return;

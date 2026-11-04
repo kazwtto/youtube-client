@@ -220,7 +220,7 @@ function HistoryPage(props: { host: HTMLElement }) {
       await navigator.clipboard.writeText(`https://www.youtube.com/watch?v=${id}`);
       showToast(t("history.linkCopied"));
     } catch {
-      setStatus(t("history.copyError"));
+      // ignore clipboard error
     }
     setOpenMenu(null);
   };

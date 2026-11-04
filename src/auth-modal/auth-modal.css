@@ -24,7 +24,7 @@ body {
   height: 100%;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(6px);
-  animation: authOverlayFadeIn 160ms ease-out both;
+  animation: authOverlayFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   pointer-events: auto;
 }
 
@@ -53,18 +53,18 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: authCardPopIn 160ms ease-out both;
+  animation: authCardPopIn 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   pointer-events: auto;
 }
 
 @keyframes authCardPopIn {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: scale(0.96) translateY(-6px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: scale(1) translateY(0);
   }
 }
 
@@ -108,7 +108,7 @@ body {
   background: transparent;
   color: #9aa0a6;
   cursor: pointer;
-  transition: background-color 140ms ease-out, color 140ms ease-out;
+  transition: background-color 0.15s ease, color 0.15s ease;
   padding: 0;
 }
 

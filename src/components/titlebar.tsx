@@ -9,6 +9,7 @@ import { api, type AuthSnapshot, type RpcStatus, type TitlebarStyle } from "../l
 import { Icon, type IconName } from "./icons";
 
 export interface TitlebarActions {
+  /// Navigates the local interface to a route.
   onNavigate: (id: RouteId) => void;
 }
 
@@ -96,6 +97,7 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
   const [selectedIndex, setSelectedIndex] = createSignal(-1);
   const [maximized, setMaximized] = createSignal(false);
   const [avatarFailed, setAvatarFailed] = createSignal(false);
+  let avatarImage!: HTMLImageElement;
   let searchContainer!: HTMLDivElement;
   let searchInput!: HTMLInputElement;
   let authContainer!: HTMLDivElement;
@@ -106,9 +108,18 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
   const unlisteners: UnlistenFn[] = [];
   const appWindow = getCurrentWindow();
 
+  let previousAuth = state.auth();
   createEffect(() => {
-    state.auth().avatarUrl;
+    const auth = state.auth();
+    if (auth === previousAuth) return;
+    previousAuth = auth;
     setAvatarFailed(false);
+    if (auth.avatarUrl) avatarImage.src = auth.avatarUrl;
+  });
+
+  createEffect(() => {
+    props.bar.classList.toggle("titlebar--icons-mode", state.style() === "icons");
+    props.bar.classList.toggle("titlebar--integrated-masthead", state.integrated());
   });
 
   const closeSuggestions = (): void => {
@@ -312,18 +323,20 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
       type="button"
       class={iconOnly ? "titlebar__button titlebar__button--app" : "titlebar__tab"}
       classList={{
-        "titlebar__tab--active": !iconOnly && state.active() === tab.id,
-        "titlebar__button--active": iconOnly && state.active() === tab.id,
+        "titlebar__tab--active": state.active() === tab.id,
+        "titlebar__button--active": state.active() === tab.id,
       }}
       data-route={tab.id}
       title={tab.id === "rpc" ? rpcTitle() : t(tab.labelKey)}
       aria-label={iconOnly ? t(tab.labelKey) : undefined}
+      aria-selected={state.active() === tab.id}
       aria-current={state.active() === tab.id ? "page" : undefined}
+      role={iconOnly ? undefined : "tab"}
       onClick={() => props.actions.onNavigate(tab.id)}
     >
       <Show when={iconOnly} fallback={
         <>
-          <Icon name={tab.icon} size={17} class="titlebar__tab-icon" />
+          <Icon name={tab.icon} size={17} class="icon titlebar__tab-icon" />
           <span class="titlebar__tab-label">{t(tab.labelKey)}</span>
         </>
       }>
@@ -407,19 +420,17 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
                 }
               }}
             />
-            <Show when={query().length > 0}>
-              <button type="button" class="titlebar__search-clear" title={t("titlebar.clearSearch")} aria-label={t("titlebar.clearSearch")} onClick={() => {
-                setQuery("");
-                setSelectedIndex(-1);
-                searchInput.focus();
-                void updateSearchDropdown();
-              }}>
-                <Icon name="clear" size={18} style={{ pointerEvents: "none" }} />
-              </button>
-            </Show>
+            <button type="button" class="titlebar__search-clear" title={t("titlebar.clearSearch")} aria-label={t("titlebar.clearSearch")} hidden={query().length === 0} onClick={() => {
+              setQuery("");
+              setSelectedIndex(-1);
+              searchInput.focus();
+              void updateSearchDropdown();
+            }}>
+              <Icon name="clear" size={18} style={{ pointerEvents: "none" }} />
+            </button>
           </div>
           <button type="button" class="titlebar__search-submit" title={t("titlebar.search")} aria-label={t("titlebar.search")} onClick={() => submitSearch(query())}>
-            <Icon name="search" size={20} style={{ pointerEvents: "none", display: "inherit" }} />
+            <Icon name="search" source="youtube" size={20} style={{ pointerEvents: "none", display: "inherit" }} />
           </button>
         </div>
         <button type="button" class="titlebar__voice-button" data-action="voice" title={t("titlebar.voiceSearch")} aria-label={t("titlebar.voiceSearch")} onClick={() => runAction("voice")}>
@@ -433,11 +444,11 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
                 classList={{ "titlebar__suggestion-item--history": item.isHistory, "titlebar__suggestion-item--selected": selectedIndex() === index() }}
               >
                 <button type="button" class="titlebar__suggestion-choice" id={`titlebar-suggestion-${index()}`} aria-current={selectedIndex() === index() ? "true" : undefined} onClick={() => submitSearch(item.text)}>
-                  <Icon name={item.isHistory ? "history" as IconName : "search"} size={18} class="titlebar__suggestion-icon" style={{ pointerEvents: "none" }} />
+                  <Icon name={item.isHistory ? "history" : "search"} source="youtube" size={18} class="titlebar__suggestion-icon" style={{ pointerEvents: "none" }} />
                   <span class="titlebar__suggestion-text">{item.text}</span>
                 </button>
                 <Show when={item.isHistory}>
-                  <button type="button" class="titlebar__suggestion-remove" title={t("titlebar.removeSearchHistory")} aria-label={t("titlebar.removeSearchHistory")} onClick={(event) => {
+                  <button type="button" class="titlebar__suggestion-remove" title={t("titlebar.removeSearchHistory")} aria-label={t("titlebar.removeSearch")} onClick={(event) => {
                     event.stopPropagation();
                     removeSearchHistoryQuery(item.text);
                     void updateSearchDropdown();
@@ -453,7 +464,7 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
       </div>
 
       <div class="titlebar__spacer titlebar__spacer--right" data-tauri-drag-region />
-      <nav class="titlebar__tabs" aria-label={t("titlebar.appActions")} hidden={state.style() === "icons"}>
+      <nav class="titlebar__tabs" role="tablist" aria-label={t("titlebar.appActions")} hidden={state.style() === "icons"}>
         <For each={TABS}>{(tab) => renderTabButton(tab)}</For>
       </nav>
       <div class="titlebar__group titlebar__icons" role="group" aria-label={t("titlebar.appActions")} hidden={state.style() !== "icons"}>
@@ -466,12 +477,22 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
           <span class="titlebar__login-label">{t("titlebar.login")}</span>
         </button>
         <button type="button" class="titlebar__avatar-button" data-action="toggle-auth-menu" title={state.auth().displayName || t("titlebar.account")} aria-label={t("titlebar.account")} onClick={() => runAction("toggle-auth-menu")} hidden={!state.auth().loggedIn}>
-          <Show when={state.auth().avatarUrl && !avatarFailed()}>
-            <img class="titlebar__avatar-img" alt="" src={state.auth().avatarUrl!} referrerpolicy="no-referrer" onError={() => setAvatarFailed(true)} />
-          </Show>
-          <Show when={!state.auth().avatarUrl || avatarFailed()}>
-            <span class="titlebar__avatar-fallback"><Icon name="account" size={20} /></span>
-          </Show>
+          <img
+            class="titlebar__avatar-img"
+            alt={t("titlebar.account")}
+            src={state.auth().avatarUrl ?? ""}
+            referrerpolicy="no-referrer"
+            ref={avatarImage}
+            style={{ display: state.auth().avatarUrl && !avatarFailed() ? "block" : "none" }}
+            onError={() => setAvatarFailed(true)}
+          />
+          <span
+            class="titlebar__avatar-fallback"
+            aria-hidden="true"
+            style={{ display: state.auth().avatarUrl && !avatarFailed() ? "none" : "flex" }}
+          >
+            <Icon name="account" size={20} />
+          </span>
         </button>
       </div>
 

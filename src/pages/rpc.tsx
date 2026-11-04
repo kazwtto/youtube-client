@@ -97,6 +97,8 @@ function RpcPage(props: RpcPageProps) {
     queueSave();
   };
 
+  // The switch already says whether the integration is on; only a real
+  // problem deserves a line of text.
   return (
     <section class="page page--discord">
       <header class="page__header">
@@ -118,8 +120,7 @@ function RpcPage(props: RpcPageProps) {
         <SwitchSetting checked={draft().idleWhenPaused} label={t("rpc.idle")} hint={t("rpc.idleHint")} onChange={(event) => update("idleWhenPaused", event.currentTarget.checked)} />
       </section>
 
-      <p class="settings__saved" role="status" aria-live="polite" hidden={!message()}>{message()}</p>
-      <p class="settings__error" role="status" aria-live="polite" hidden={!error()}>{error()}</p>
+      <p id="rpc-saved" class="rpc-saved" role="status" aria-live="polite" hidden={!message() && !error()}>{message() || error()}</p>
     </section>
   );
 }

@@ -16,17 +16,15 @@ import { Router, type RouteId } from "./router";
 /// the only moment the retry action is offered.
 const LOAD_FAILED_MS = 30_000;
 
-function LoadingOverlay(props: { visible: Accessor<boolean>; failed: Accessor<boolean>; retry: () => void }) {
+function LoadingOverlay(props: { failed: Accessor<boolean>; retry: () => void }) {
   return (
-    <div class="yt-loading" hidden={!props.visible()}>
-      <div class="yt-loading__inner" role="status" aria-live="polite">
-        <span class="yt-loading__spinner" aria-hidden="true" />
-        <p class="yt-loading__label" hidden={props.failed()}>{t("youtube.loading")}</p>
-        <p class="yt-loading__label" hidden={!props.failed()}>{t("youtube.failed")}</p>
-        <button type="button" class="yt-button yt-button--filled yt-loading__retry" hidden={!props.failed()} onClick={props.retry}>
-          {t("youtube.retry")}
-        </button>
-      </div>
+    <div class="yt-loading__inner" role="status" aria-live="polite">
+      <span class="yt-loading__spinner" aria-hidden="true" />
+      <p class="yt-loading__label" hidden={props.failed()}>{t("youtube.loading")}</p>
+      <p class="yt-loading__label" hidden={!props.failed()}>{t("youtube.failed")}</p>
+      <button type="button" class="yt-button yt-button--filled yt-loading__retry" hidden={!props.failed()} onClick={props.retry}>
+        {t("youtube.retry")}
+      </button>
     </div>
   );
 }
@@ -41,7 +39,8 @@ export function createShell(root: HTMLElement): void {
   content.className = "content";
 
   const loading = document.createElement("div");
-  const [loadingVisible, setLoadingVisible] = createSignal(false);
+  loading.className = "yt-loading";
+  loading.hidden = true;
   const [loadingFailed, setLoadingFailed] = createSignal(false);
 
   const router = new Router(content);
@@ -75,7 +74,7 @@ export function createShell(root: HTMLElement): void {
 
   const syncLoading = (): void => {
     const visible = currentRoute === "home" && youtubeLoading;
-    setLoadingVisible(visible);
+    loading.hidden = !visible;
 
     if (slowTimer !== undefined) {
       window.clearTimeout(slowTimer);
@@ -95,7 +94,6 @@ export function createShell(root: HTMLElement): void {
   };
 
   render(() => <LoadingOverlay
-    visible={loadingVisible}
     failed={loadingFailed}
     retry={() => {
       youtubeLoading = true;

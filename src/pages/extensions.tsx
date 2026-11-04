@@ -58,7 +58,7 @@ function ExtensionCard(props: {
             <span class="yt-switch__track" aria-hidden="true" />
           </label>
         </span>
-        <button type="button" class="yt-icon-button" title={t("extensions.remove")} aria-label={`${t("extensions.remove")} ${props.extension.name}`} onClick={() => props.onRemove(props.extension)}>
+        <button type="button" class="yt-icon-button" title={t("extensions.remove")} aria-label={t("extensions.remove")} onClick={() => props.onRemove(props.extension)}>
           <Icon name="trash" size={18} />
         </button>
       </div>
@@ -116,7 +116,9 @@ function ExtensionsPage(props: ExtensionsPageProps) {
     try {
       const installed = await api.extensionsInstall(source);
       await refresh();
-      notify(installed.length ? t("extensions.installedCount", { count: installed.length }) : t("extensions.noneInstalled"), installed.length ? "idle" : "error");
+      if (installed.length === 1) notify(t("extensions.installed", { name: installed[0].name }));
+      else if (installed.length > 1) notify(t("extensions.installedMultiple", { count: installed.length }));
+      else notify(t("extensions.emptyHint"));
     } catch (error) {
       notify(t("common.error", { error: String(error) }), "error");
     } finally {
@@ -139,12 +141,10 @@ function ExtensionsPage(props: ExtensionsPageProps) {
     }
     await refresh();
     setInstalling(false);
-    if (totalInstalled > 0 && errors.length > 0) {
-      notify(t("extensions.partialInstall", { count: totalInstalled, errors: errors.slice(0, 3).join("; ") }), "error");
-    } else if (totalInstalled > 0) {
+    if (totalInstalled > 0) {
       notify(t("extensions.installedCount", { count: totalInstalled }));
     } else if (errors.length > 0) {
-      notify(errors.slice(0, 3).join("; "), "error");
+      notify(errors.join("; "), "error");
     } else {
       notify(t("extensions.noneInstalled"), "error");
     }
@@ -213,8 +213,8 @@ function ExtensionsPage(props: ExtensionsPageProps) {
           if (Array.isArray(paths)) void installFiles(paths);
         }
       }));
-    } catch {
-      // The file picker remains available when native drag and drop is unavailable.
+    } catch (error) {
+      console.warn("Could not register onDragDropEvent", error);
     }
     void refresh();
 
@@ -245,7 +245,7 @@ function ExtensionsPage(props: ExtensionsPageProps) {
         </header>
 
         <div class="ext-list">
-          <Show when={!loadError()} fallback={<p class="status" role="status">{loadError()}</p>}>
+          <Show when={!loadError()} fallback={<>{loadError()}</>}>
             <Show when={extensions.length > 0} fallback={
               <div class="yt-empty yt-empty--compact">
                 <Icon name="extensions" size={22} />

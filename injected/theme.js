@@ -670,43 +670,67 @@
    * 6. Bootstrap
    * ---------------------------------------------------------------------- */
 
-  function applyMastheadIntegration() {
-    if (window.__ytdesktopInitialMastheadIntegrated) {
-      let style = document.getElementById("ytdesktop-masthead-hide");
-      if (!style) {
-        style = document.createElement("style");
-        style.id = "ytdesktop-masthead-hide";
-        style.textContent = `
-          #masthead-container, ytd-masthead, #ticker.ytd-masthead, #interstitial.ytd-masthead {
-            display: none !important;
-            height: 0 !important;
-            min-height: 0 !important;
-            max-height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            pointer-events: none !important;
-            visibility: hidden !important;
-          }
-          :root, html, body, ytd-app {
-            --ytd-masthead-height: 0px !important;
-            --ytd-toolbar-offset: 0px !important;
-          }
-          ytd-page-manager#page-manager {
-            margin-top: 0px !important;
-            padding-top: 0px !important;
-          }
-          #guide.ytd-app, ytd-mini-guide-renderer.ytd-app, #contentContainer.tp-yt-app-drawer {
-            top: 0px !important;
-            padding-top: 0px !important;
-          }
-        `;
-        const parent = document.head || document.documentElement;
-        if (parent) {
-          parent.appendChild(style);
+  const MASTHEAD_STYLE_ID = "ytdesktop-masthead-hide";
+  const MASTHEAD_SETTING_KEY = "ytdesktop-masthead-integrated";
+
+  function setMastheadIntegrated(integrated, persist) {
+    let style = document.getElementById(MASTHEAD_STYLE_ID);
+    if (!integrated) {
+      if (style) style.remove();
+    } else if (!style) {
+      style = document.createElement("style");
+      style.id = MASTHEAD_STYLE_ID;
+      style.textContent = `
+        #masthead-container, ytd-masthead, #ticker.ytd-masthead, #interstitial.ytd-masthead {
+          display: none !important;
+          height: 0 !important;
+          min-height: 0 !important;
+          max-height: 0 !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          pointer-events: none !important;
+          visibility: hidden !important;
         }
+        :root, html, body, ytd-app {
+          --ytd-masthead-height: 0px !important;
+          --ytd-toolbar-offset: 0px !important;
+        }
+        ytd-page-manager#page-manager {
+          margin-top: 0px !important;
+          padding-top: 0px !important;
+        }
+        #guide.ytd-app, ytd-mini-guide-renderer.ytd-app, #contentContainer.tp-yt-app-drawer {
+          top: 0px !important;
+          padding-top: 0px !important;
+        }
+      `;
+      const parent = document.head || document.documentElement;
+      if (parent) parent.appendChild(style);
+    }
+
+    if (persist) {
+      try {
+        window.sessionStorage.setItem(MASTHEAD_SETTING_KEY, String(integrated));
+      } catch (_) {
+        // The page-load hook applies the current preference if storage is unavailable.
       }
     }
   }
+
+  function applyMastheadIntegration() {
+    let integrated = Boolean(window.__ytdesktopInitialMastheadIntegrated);
+    try {
+      const saved = window.sessionStorage.getItem(MASTHEAD_SETTING_KEY);
+      if (saved === "true" || saved === "false") integrated = saved === "true";
+    } catch (_) {
+      // Fall back to the preference embedded for the first page load.
+    }
+    setMastheadIntegrated(integrated, false);
+  }
+
+  window.__ytdesktopSetMastheadIntegrated = function (integrated) {
+    setMastheadIntegrated(Boolean(integrated), true);
+  };
 
   // The backend embeds the resolved theme in this script, and initialization
   // scripts run before the page is parsed. Apply it synchronously so YouTube's

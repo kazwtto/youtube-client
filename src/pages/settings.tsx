@@ -25,7 +25,6 @@ function SettingsPage(props: SettingsPageProps) {
   const [current, setCurrent] = createSignal(props.initial);
   const [activeTab, setActiveTab] = createSignal(props.initialTab);
   const [radius, setRadius] = createSignal(props.initial.theme.radius);
-  const [saveError, setSaveError] = createSignal("");
   const [horizontalTabs, setHorizontalTabs] = createSignal(window.matchMedia("(max-width: 900px)").matches);
   let form!: HTMLFormElement;
   let timer: number | undefined;
@@ -97,11 +96,12 @@ function SettingsPage(props: SettingsPageProps) {
     }
 
     const next = collect();
+    // `input` and `change` can both fire for the same edit; skip a save that
+    // would not change anything so the theme is not re-applied twice.
     if (JSON.stringify(next) === JSON.stringify(current())) return;
 
     const savedVersion = editVersion;
     saving = true;
-    setSaveError("");
     try {
       const saved = await api.settingsUpdate(next);
       if (editVersion === savedVersion) {
@@ -110,7 +110,7 @@ function SettingsPage(props: SettingsPageProps) {
         setLanguage(saved.general.language);
       }
     } catch (error) {
-      setSaveError(t("common.error", { error: String(error) }));
+      console.error(error);
     } finally {
       saving = false;
       if (pending) {
@@ -212,6 +212,8 @@ function SettingsPage(props: SettingsPageProps) {
           ref={form}
           onInput={(event) => {
             const target = event.target;
+            // Selects and checkboxes are handled by `change`; saving on `input` too
+            // would apply the theme twice for a single choice.
             if (target instanceof HTMLInputElement) {
               if (target.type === "checkbox") return;
               if (target.name === "radius") setRadius(Number(target.value));
@@ -254,7 +256,7 @@ function SettingsPage(props: SettingsPageProps) {
                 <output class="yt-range-value" name="radiusValue">{radius()}</output>
               </span>
             </label>
-            <SwitchSetting name="motion" checked={current().theme.motion} label={t("settings.motion")} hint={t("settings.motionHint")} />
+            <SwitchSetting name="motion" checked={current().theme.motion} label={t("settings.motion")} />
             <SettingRow label={t("settings.titlebarStyle")} control={
               <Select name="titlebarStyle" label={() => t("settings.titlebarStyle")} value={() => current().general.titlebarStyle} options={() => [
                 { value: "tabs", label: t("settings.titlebarTabs") },
@@ -300,7 +302,6 @@ function SettingsPage(props: SettingsPageProps) {
             </div>
           </section>
 
-          <p class="settings__error" role="status" aria-live="polite" hidden={!saveError()}>{saveError()}</p>
         </form>
       </div>
     </section>

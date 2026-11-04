@@ -12,7 +12,6 @@
 }
 
 button { cursor: pointer !important; }
-button:disabled { cursor: not-allowed !important; }
 
 :root[data-motion="off"] *,
 :root[data-motion="off"] *::before,

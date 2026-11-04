@@ -59,5 +59,7 @@ extensions/*
 
 # Local research and conversation exports stay outside source control
 planning/
+docs/PLANO-MIGRACAO-SOLIDJS.md
+docs/RELATORIO-REVISAO-MIGRACAO-SOLIDJS.md
 thread-*.md
 .cloud-attachments/

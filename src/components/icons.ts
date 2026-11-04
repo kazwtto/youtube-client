@@ -94,6 +94,7 @@ export type YoutubeIconName =
 
 export interface IconProps {
   name: IconName | YoutubeIconName;
+  source?: "launcher" | "youtube";
   size?: number;
   class?: string;
   style?: Partial<CSSStyleDeclaration>;
@@ -150,7 +151,13 @@ const YOUTUBE_ICONS: Record<YoutubeIconName, string> = {
 const parsedIcons = new Map<string, SVGSVGElement>();
 
 export function Icon(props: IconProps): JSX.Element {
-  const raw = LAUNCHER_ICONS[props.name as IconName] ?? YOUTUBE_ICONS[props.name as YoutubeIconName];
+  const launcherIcon = LAUNCHER_ICONS[props.name as IconName];
+  const youtubeIcon = YOUTUBE_ICONS[props.name as YoutubeIconName];
+  const raw = props.source === "youtube"
+    ? youtubeIcon
+    : props.source === "launcher"
+      ? launcherIcon
+      : launcherIcon ?? youtubeIcon;
   let template = parsedIcons.get(raw);
 
   if (!template) {
@@ -163,7 +170,9 @@ export function Icon(props: IconProps): JSX.Element {
   const size = props.size ?? 16;
   svg.setAttribute("width", String(size));
   svg.setAttribute("height", String(size));
-  if (props.class) svg.setAttribute("class", props.class);
+  const isLauncher = props.source === "launcher" || (props.source !== "youtube" && props.name in LAUNCHER_ICONS);
+  const className = props.class ?? (isLauncher ? "icon" : undefined);
+  if (className) svg.setAttribute("class", className);
   if (props.style) Object.assign(svg.style, props.style);
   return svg;
 }

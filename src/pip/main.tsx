@@ -11,10 +11,12 @@ import { initI18n, onLanguageChange, t } from "../i18n";
 import { initTheme } from "../theme/provider";
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{6,32}$/;
+/** Messages the buttons drawn inside the player frame send to this page. */
 const FRAME_SOURCE = "ytdesktop-pip";
 const RESIZE_HANDLES = ["North", "South", "East", "West", "NorthEast", "NorthWest", "SouthEast", "SouthWest"] as const;
 type ResizeDirection = (typeof RESIZE_HANDLES)[number];
 
+/** Player state reported by the observer running inside the YouTube page. */
 interface PlayerSnapshot {
   videoId: string | null;
   title: string | null;
@@ -26,6 +28,7 @@ function PipWindow() {
   const [videoId, setVideoId] = createSignal<string | null>(null);
   const [source, setSource] = createSignal("");
   const [ready, setReady] = createSignal(false);
+  const [snapshotKnown, setSnapshotKnown] = createSignal(false);
   let frame!: HTMLIFrameElement;
   let revealTimer: number | undefined;
   let unlisten: UnlistenFn | undefined;
@@ -37,6 +40,7 @@ function PipWindow() {
   };
   const revealSoon = (): void => {
     if (revealTimer !== undefined) window.clearTimeout(revealTimer);
+    // A frame that never answers must not leave the spinner over the video.
     revealTimer = window.setTimeout(() => setReady(true), 6000);
   };
   const markReady = (): void => {
@@ -48,6 +52,7 @@ function PipWindow() {
   };
   const load = (id: string, startSeconds = 0): void => {
     if (!VIDEO_ID.test(id) || id === videoId()) return;
+    setSnapshotKnown(true);
     const offset = Number.isFinite(startSeconds) && startSeconds > 1 ? `&start=${Math.floor(startSeconds)}` : "";
     setReady(false);
     setVideoId(id);
@@ -98,8 +103,11 @@ function PipWindow() {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") close();
     };
+    revealSoon();
     window.addEventListener("message", onMessage);
     document.addEventListener("keydown", onKeyDown);
+    // The page follows the video that the YouTube webview is playing, so the next
+    // video advances the mini player without reopening it.
     void listen<PlayerSnapshot | null>("pip://player", (event) => {
       const id = event.payload?.videoId ?? "";
       if (VIDEO_ID.test(id)) load(id, event.payload?.positionSecs ?? 0);
@@ -111,8 +119,9 @@ function PipWindow() {
       .then((snapshot) => {
         const id = snapshot?.videoId ?? "";
         if (VIDEO_ID.test(id)) load(id, snapshot?.positionSecs ?? 0);
+        else setSnapshotKnown(true);
       })
-      .catch(() => undefined);
+      .catch(() => setSnapshotKnown(true));
 
     onCleanup(() => {
       stopLanguage();
@@ -129,11 +138,11 @@ function PipWindow() {
 
   return (
     <div class="pip__frame" classList={{ "is-ready": ready() }}>
-      {videoId() ? (
+      {videoId() !== null || !snapshotKnown() ? (
         <>
           <iframe
             class="pip__video"
-            src={source()}
+            src={source() || undefined}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowfullscreen
             title={t("titlebar.pip")}

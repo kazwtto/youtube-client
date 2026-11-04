@@ -40,9 +40,11 @@ function MenuItem(props: { action: string; label: TranslationKey; icon: YoutubeI
 }
 
 function MenuView() {
+  // Render initial fallback state
   const [auth, setAuth] = createSignal<AuthSnapshot>({ loggedIn: false });
   const [avatarFailed, setAvatarFailed] = createSignal(false);
   let host!: HTMLDivElement;
+  let avatarImage!: HTMLImageElement;
   let unlisten: UnlistenFn | undefined;
   let disposed = false;
 
@@ -56,9 +58,14 @@ function MenuView() {
     }
   };
 
+  let previousAuth = auth();
   createEffect(() => {
-    auth().avatarUrl;
-    setAvatarFailed(false);
+    const snapshot = auth();
+    if (snapshot !== previousAuth) {
+      previousAuth = snapshot;
+      setAvatarFailed(false);
+      if (snapshot.avatarUrl && avatarImage) avatarImage.src = snapshot.avatarUrl;
+    }
     requestAnimationFrame(() => {
       const height = host.offsetHeight;
       if (height > 0) void getCurrentWindow().setSize(new LogicalSize(host.offsetWidth + 48, height + 44)).catch(() => undefined);
@@ -117,18 +124,23 @@ function MenuView() {
         <>
           <div class="yt-context-menu__header">
             <div class="yt-context-menu__avatar-container">
-              <Show when={auth().avatarUrl && !avatarFailed()}>
+              <Show when={auth().avatarUrl}>
                 <img
                   class="yt-context-menu__header-avatar"
                   src={auth().avatarUrl!}
                   referrerpolicy="no-referrer"
                   alt=""
+                  ref={avatarImage}
+                  style={{ display: avatarFailed() ? "none" : "block" }}
                   onError={() => setAvatarFailed(true)}
                 />
               </Show>
-              <Show when={!auth().avatarUrl || avatarFailed()}>
-                <span class="yt-context-menu__header-avatar--fallback"><Icon name="account" size={24} /></span>
-              </Show>
+              <span
+                class="yt-context-menu__header-avatar--fallback"
+                style={{ display: auth().avatarUrl && !avatarFailed() ? "none" : "flex" }}
+              >
+                <Icon name="account" size={24} />
+              </span>
             </div>
             <div class="yt-context-menu__header-info">
               <span class="yt-context-menu__header-name">{auth().displayName || auth().handle || t("menu.myAccount")}</span>

@@ -44,6 +44,7 @@ fn main() {
             "history_delete",
             "player_snapshot",
             "auth_snapshot",
+            "native_pip_return",
         ]),
     ))
     .expect("failed to run tauri-build");

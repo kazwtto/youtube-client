@@ -343,6 +343,16 @@ fn add_youtube(
     webview_data_dir: &Path,
     theme: Option<&ResolvedTheme>,
 ) -> AppResult<()> {
+    if let Some(state) = window.app_handle().try_state::<AppState>() {
+        state.youtube_load_generation.fetch_add(1, Ordering::SeqCst);
+        state
+            .youtube_ready
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        state
+            .youtube_loading
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
     let (position, size) = youtube_bounds(window)?;
     let url: tauri::Url = YOUTUBE_URL.parse().expect("invalid YouTube URL");
 
@@ -401,9 +411,26 @@ fn add_youtube(
                                 let _ = webview.eval("location.href = 'https://www.youtube.com';");
                                 return;
                             }
-                            set_loading(&app, true);
-                            let _ = webview.hide();
-                            let _ = app.emit(crate::core::events::YOUTUBE_LOADING, true);
+                            let ready = app
+                                .try_state::<AppState>()
+                                .map(|state| {
+                                    state.youtube_load_generation.fetch_add(1, Ordering::SeqCst);
+                                    state.youtube_ready.load(Ordering::SeqCst)
+                                })
+                                .unwrap_or_default();
+                            let _ = app.emit(crate::core::events::YOUTUBE_SURFACE_LOADING, true);
+                            if ready {
+                                set_loading(&app, false);
+                                let visible = app
+                                    .try_state::<AppState>()
+                                    .map(|state| state.youtube_visible.load(std::sync::atomic::Ordering::SeqCst))
+                                    .unwrap_or(true);
+                                if visible { let _ = webview.show(); }
+                            } else {
+                                set_loading(&app, true);
+                                let _ = webview.hide();
+                            }
+                            let _ = app.emit(crate::core::events::YOUTUBE_LOADING, !ready);
                         }
                         tauri::webview::PageLoadEvent::Finished => {
                             let _ = webview.eval(
@@ -429,7 +456,9 @@ fn add_youtube(
                                 })
                                 .unwrap_or(true);
 
-                            set_loading(&app, false);
+                            if let Some(state) = app.try_state::<AppState>() {
+                                state.youtube_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+                            }
 
                             if visible {
                                 let _ = webview.show();
@@ -439,7 +468,13 @@ fn add_youtube(
                                 let _ = layout_webviews(&w);
                             }
 
-                            let _ = app.emit(crate::core::events::YOUTUBE_LOADING, false);
+                            if let Some(state) = app.try_state::<AppState>() {
+                                let generation = state.youtube_load_generation.load(Ordering::SeqCst);
+                                let initial = state.youtube_loading.load(Ordering::SeqCst);
+                                let _ = webview.eval(&format!(
+                                    "window.__ytdesktopWaitForSurface?.({generation}, {initial});"
+                                ));
+                            }
                         }
                     }
                 });

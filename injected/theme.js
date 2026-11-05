@@ -360,6 +360,7 @@
         background: surfaces.canvas,
         color: palette.fg,
       }),
+      rule("html[data-ytdesktop-page-enter]", { background: palette.bg }),
       `::selection { background: ${palette.accent}; color: ${palette.accentFg}; }`,
     ];
   }
@@ -673,6 +674,57 @@
   }
 
   window.__ytdesktopApplyTheme = apply;
+
+  let pageEntryAnimation;
+  window.__ytdesktopAnimatePageEntry = function () {
+    if (window !== window.top) return;
+    const root = document.documentElement;
+    if (root.dataset.motion === "off" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+    const page = document.querySelector("ytd-page-manager");
+    if (!page || pageEntryAnimation?.playState === "running") return;
+
+    root.setAttribute("data-ytdesktop-page-enter", "");
+    // Match the launcher route animation without replacing YouTube's transform.
+    const animation = page.animate(
+      [{ opacity: 0, translate: "0 4px" }, { opacity: 1, translate: "0 0" }],
+      { duration: 160, easing: "ease-out" },
+    );
+    pageEntryAnimation = animation;
+    const clear = () => {
+      if (pageEntryAnimation !== animation) return;
+      root.removeAttribute("data-ytdesktop-page-enter");
+      pageEntryAnimation = undefined;
+    };
+    animation.finished.then(clear, clear);
+  };
+
+  let surfaceGeneration;
+  window.__ytdesktopWaitForSurface = function (generation, animate) {
+    if (window !== window.top || surfaceGeneration === generation) return;
+    surfaceGeneration = generation;
+
+    const wait = () => {
+      if (surfaceGeneration !== generation) return;
+      const pages = document.querySelectorAll("ytd-page-manager > :not([hidden]), main, [role=main]");
+      const hasContent = Array.from(pages).some((page) =>
+        page.firstElementChild && page.getBoundingClientRect().height > 0,
+      );
+      if (!hasContent) {
+        window.setTimeout(wait, 100);
+        return;
+      }
+
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (surfaceGeneration !== generation) return;
+        if (animate) window.__ytdesktopAnimatePageEntry();
+        window.__TAURI_INTERNALS__.invoke("youtube_surface_painted", { generation }).catch(console.error);
+      }));
+    };
+    wait();
+  };
+
 
   // Runs from the native page-load hook after every navigation: YouTube
   // rewrites its head styles during SPA navigation, so the theme sheet is

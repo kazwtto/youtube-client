@@ -219,6 +219,10 @@
   background: transparent;
 }
 
+.content[data-youtube="true"][data-youtube-navigation-loading="true"] {
+  background: var(--color-bg-solid);
+}
+
 .content[data-youtube="true"] > * {
   display: none;
 }
@@ -506,7 +510,7 @@
   left: 0;
   display: grid;
   place-items: center;
-  background: var(--color-bg);
+  background: var(--color-bg-solid);
   z-index: 3;
 }
 

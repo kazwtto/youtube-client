@@ -11,5 +11,5 @@
       "https://*.youtube.com"
     ]
   },
-  "permissions": ["allow-theme-get", "allow-player-snapshot", "allow-auth-snapshot", "allow-native-pip-return"]
+  "permissions": ["allow-theme-get", "allow-player-snapshot", "allow-auth-snapshot", "allow-native-pip-return", "allow-youtube-surface-painted"]
 }

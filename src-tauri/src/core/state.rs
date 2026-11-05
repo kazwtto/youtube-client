@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Mutex, RwLock};
 
 use tauri::AppHandle;
@@ -26,6 +26,10 @@ pub struct AppState {
     /// Whether the YouTube page is still loading. The webview stays hidden
     /// until it is ready, so the launcher can show a loading state.
     pub youtube_loading: AtomicBool,
+    /// Whether this YouTube webview has a document that can be shown.
+    pub youtube_ready: AtomicBool,
+    /// Identifies the current document so a late paint cannot complete a new load.
+    pub youtube_load_generation: AtomicU64,
     /// Whether the UI webview is elevated to full height to display dropdowns or menus.
     pub ui_elevated: AtomicBool,
     /// Last state reported by the YouTube player, used by picture-in-picture.
@@ -50,6 +54,8 @@ impl AppState {
             watch: Mutex::new(WatchTracker::default()),
             youtube_visible: AtomicBool::new(true),
             youtube_loading: AtomicBool::new(true),
+            youtube_ready: AtomicBool::new(false),
+            youtube_load_generation: AtomicU64::new(0),
             ui_elevated: AtomicBool::new(false),
             last_player: Mutex::new(None),
         })

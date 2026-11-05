@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 
-use tauri::{Emitter, Manager, State, Window};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::core::error::{AppError, AppResult};
 use crate::core::state::AppState;
@@ -30,7 +30,9 @@ pub fn set_webview_visible(
     // Never reveal a page that is still loading: the launcher shows its loading
     // state and the page-load handler reveals the site when it is ready.
     if visible {
-        if state.youtube_loading.load(Ordering::SeqCst) {
+        if state.youtube_loading.load(Ordering::SeqCst)
+            && !state.youtube_ready.load(Ordering::SeqCst)
+        {
             webview.hide()?;
             return Ok(());
         }
@@ -682,4 +684,22 @@ fn urlencoding(input: &str) -> String {
         }
     }
     encoded
+}
+
+/// Returns the current YouTube startup/loading state so the UI can reconcile if
+/// its event listener attached after the page finished loading.
+#[tauri::command]
+pub fn youtube_loading_state(state: State<'_, AppState>) -> bool {
+    state.youtube_loading.load(Ordering::SeqCst)
+}
+
+/// Completes the loading handoff once the YouTube document has rendered.
+#[tauri::command]
+pub fn youtube_surface_painted(app: AppHandle, state: State<'_, AppState>, generation: u64) {
+    if generation != state.youtube_load_generation.load(Ordering::SeqCst) {
+        return;
+    }
+    state.youtube_loading.store(false, Ordering::SeqCst);
+    let _ = app.emit(crate::core::events::YOUTUBE_SURFACE_LOADING, false);
+    let _ = app.emit(crate::core::events::YOUTUBE_LOADING, false);
 }

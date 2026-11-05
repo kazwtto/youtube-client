@@ -119,16 +119,34 @@ export function createShell(root: HTMLElement): void {
     titlebar.setAuth(event.payload);
   }).catch(() => undefined);
 
+  let loadingEventVersion = 0;
   void listen<boolean>("youtube://loading", (event) => {
+    loadingEventVersion += 1;
     youtubeLoading = event.payload;
     syncLoading();
+  }).then(async () => {
+    const version = loadingEventVersion;
+    try {
+      const loadingState = await api.youtubeLoadingState();
+      if (version === loadingEventVersion) {
+        youtubeLoading = loadingState;
+        syncLoading();
+      }
+    } catch {
+      // The event listener remains the source of updates if reconciliation fails.
+    }
   }).catch((error) => {
     console.warn(t("shell.loadingEventsError", { error: String(error) }));
   });
 
+  void listen<boolean>("youtube://surface-loading", (event) => {
+    content.dataset.youtubeNavigationLoading = event.payload ? "true" : "false";
+  }).catch(() => undefined);
+
   let routeUpdate = 0;
   router.onNavigate(async (route) => {
     const update = ++routeUpdate;
+    const returningToYoutube = currentRoute !== "home" && route.id === "home";
     currentRoute = route.id;
     titlebar.setActive(route.id);
     syncLoading();
@@ -142,7 +160,11 @@ export function createShell(root: HTMLElement): void {
         return;
       }
       content.dataset.youtube = "true";
-      void api.ytNavigate("eval:(function(){ if (!location.hostname.includes('youtube.com')) { location.href = 'https://www.youtube.com'; } })()");
+      const animate = returningToYoutube && !youtubeLoading;
+      void api.ytNavigate(`eval:(function(){
+        if (!location.hostname.includes('youtube.com')) location.href = 'https://www.youtube.com';
+        else if (${animate}) window.__ytdesktopAnimatePageEntry?.();
+      })()`);
     } else {
       content.dataset.youtube = "false";
       await setYoutubeVisible(false);

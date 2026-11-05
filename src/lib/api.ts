@@ -159,6 +159,7 @@ export const api = {
 
   themeGet: (): Promise<ResolvedTheme> => invoke<ResolvedTheme>("theme_get"),
 
+  youtubeLoadingState: (): Promise<boolean> => invoke<boolean>("youtube_loading_state"),
   settingsGet: (): Promise<AppSettings> => invoke<AppSettings>("settings_get"),
 
   settingsUpdate: (settings: AppSettings): Promise<AppSettings> =>

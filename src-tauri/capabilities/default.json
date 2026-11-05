@@ -40,6 +40,7 @@
     "allow-history-clear",
     "allow-history-delete",
     "allow-player-snapshot",
+    "allow-youtube-loading-state",
     "allow-auth-snapshot"
   ]
 }

@@ -45,6 +45,8 @@ fn main() {
             "player_snapshot",
             "auth_snapshot",
             "native_pip_return",
+            "youtube_loading_state",
+            "youtube_surface_painted",
         ]),
     ))
     .expect("failed to run tauri-build");

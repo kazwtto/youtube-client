@@ -75,6 +75,8 @@ pub fn run() {
             commands::window::set_webview_visible,
             commands::window::yt_navigate,
             commands::window::auth_snapshot,
+            commands::window::youtube_loading_state,
+            commands::window::youtube_surface_painted,
             commands::window::show_context_menu,
             commands::window::hide_context_menu,
             commands::window::is_context_menu_visible,

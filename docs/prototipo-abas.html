@@ -16,30 +16,26 @@
   :focus-visible { outline: 2px solid #ff8299; outline-offset: -2px; }
   [hidden] { display: none !important; }
   .window { background: #17181e; border: 1px solid #383842; border-radius: 14px; overflow: hidden; }
-  .titlebar, .strip, .manager-head { display: flex; align-items: center; gap: 7px; padding: 7px 10px; }
+  .titlebar, .manager-head { display: flex; align-items: center; gap: 7px; padding: 7px 10px; }
   .titlebar { min-height: 40px; background: #202127; flex-wrap: wrap; }
   .brand { padding: 0 8px; font-weight: 650; white-space: nowrap; }
   .mark { color: #ff4268; margin-right: 5px; }
   .sections { display: flex; gap: 2px; flex-wrap: wrap; }
   .sections [aria-pressed="true"] { background: #ffffff13; }
-  .strip { border-block: 1px solid #30313a; }
-  .tabs { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; }
-  .tab { display: flex; align-items: center; flex: 0 0 clamp(112px, 20vw, 188px); border-radius: 8px; min-width: 0; }
-  .tab.active { background: #30303a; box-shadow: inset 0 -2px #ff4268; }
-  .tab-select, .row-select { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; text-align: left; }
+  .strip { display: flex; gap: 3px; align-items: center; min-width: 0; margin-left: auto; }
+  #toggle { display: flex; align-items: center; gap: 7px; max-width: min(245px, 72vw); min-width: 0; background: #ffffff0d; }
+  #count { flex: none; font-variant-numeric: tabular-nums; color: #d0cbd9; }
+  .row-select { display: flex; align-items: center; min-width: 0; flex: 1; text-align: left; }
   .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .icon { flex: none; }
   .close { padding-inline: 8px; color: #c6c3ce; }
-  .strip > button { flex: none; white-space: nowrap; }
-  .workspace { position: relative; min-height: 440px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(270px, 34%); }
-  .workspace:has(.manager[hidden]) { grid-template-columns: minmax(0, 1fr); }
+  .workspace { position: relative; min-height: 440px; display: block; }
   .page { min-width: 0; padding: clamp(16px, 3vw, 30px); }
   .screen { display: grid; place-items: center; aspect-ratio: 16 / 9; border-radius: 12px; background: radial-gradient(ellipse at 70% 20%, #743b58, transparent 70%), linear-gradient(135deg, #37264e, #191921); }
   .screen button { background: #17171de6; border: 1px solid #ffffff36; padding: 12px 20px; }
   .page h2 { margin-top: 14px; font-size: 20px; }
   .muted, .status { color: #b8b6c3; }
   .page .muted { margin-top: 7px; }
-  .manager { padding: 8px 10px 12px; border-left: 1px solid #383842; background: #202127; }
+  .manager { position: absolute; inset: 8px 10px auto auto; width: min(360px, calc(100% - 20px)); max-height: min(410px, 80%); overflow: auto; z-index: 1; padding: 8px 10px 12px; border: 1px solid #454551; border-radius: 12px; background: #202127; box-shadow: 0 12px 32px #0008; }
   .manager-head { justify-content: space-between; padding-inline: 5px; }
   .manager h2 { font-size: 16px; }
   .manager input { width: 100%; margin: 4px 0 10px; padding: 9px 11px; color: inherit; background: #15161b; border: 1px solid #43434e; border-radius: 8px; }
@@ -50,14 +46,11 @@
   .manager-actions { display: flex; gap: 6px; border-top: 1px solid #393943; margin-top: 10px; padding-top: 8px; }
   .manager-actions button { flex: 1; background: #ffffff0b; }
   .manager-actions button:disabled { opacity: .45; cursor: default; }
-  .status { min-height: 42px; padding: 11px 14px; border-top: 1px solid #30313a; }
-  @media (max-width: 680px) {
-    .workspace { grid-template-columns: minmax(0, 1fr); }
-    .manager { border-left: 0; border-top: 1px solid #383842; }
-  }
+  .status { padding: 9px 5px 0; }
+
 </style>
 <h1>Abas no YT Desktop</h1>
-<p class="intro">Protótipo interativo · O seletor fica em Assistir e o painel encontra abas fora da faixa visível.</p>
+<p class="intro">Protótipo interativo · Seletor compacto na barra de título.</p>
 <main class="window">
   <header class="titlebar">
     <span class="brand"><span class="mark" aria-hidden="true">▶</span>YT Desktop</span>
@@ -68,14 +61,18 @@
       <button type="button" data-section="Discord" aria-pressed="false">Discord</button>
       <button type="button" data-section="Ajustes" aria-pressed="false">Ajustes</button>
     </nav>
+    <div class="strip" id="strip">
+      <button type="button" id="toggle" aria-controls="manager" aria-expanded="false">
+        <span class="mark" id="tab-activity" aria-hidden="true">▶</span>
+        <span class="truncate" id="active-title"></span>
+        <span id="count" aria-hidden="true"></span>
+        <span aria-hidden="true">⌄</span>
+      </button>
+      <button type="button" id="add" aria-label="Nova aba" title="Nova aba">＋</button>
+    </div>
   </header>
-  <div class="strip" id="strip">
-    <div class="tabs" id="tabs" role="tablist" aria-label="Abas do YouTube"></div>
-    <button type="button" id="add" aria-label="Nova aba" title="Nova aba">＋</button>
-    <button type="button" id="toggle" aria-controls="manager" aria-expanded="true">☰ <span id="count"></span> abas</button>
-  </div>
   <div class="workspace">
-    <section class="page" id="page" role="tabpanel">
+    <section class="page" id="page" aria-labelledby="page-title">
       <div class="screen" id="screen"><button type="button" id="play"></button></div>
       <h2 id="page-title"></h2>
       <p class="muted" id="page-detail"></p>
@@ -91,9 +88,9 @@
         <button type="button" id="earlier">↑ Mover antes</button>
         <button type="button" id="later">↓ Mover depois</button>
       </div>
+      <div class="status" id="status" role="status"></div>
     </aside>
   </div>
-  <div class="status" id="status" role="status"></div>
 </main>
 <script>
   const byId = (id) => document.getElementById(id);
@@ -106,7 +103,7 @@
   let activeId = 3;
   let playingId = 2;
   let section = "Assistir";
-  let managerOpen = true;
+  let managerOpen = false;
 
   function button(text, className, label, action) {
     const element = document.createElement("button");
@@ -122,14 +119,15 @@
     const id = nextId++;
     tabs.push({ id, title: "Nova aba", url: "youtube.com", kind: "home" });
     byId("query").value = "";
-    selectTab(id);
+    selectTab(id, true);
   }
 
-  function selectTab(id, focus = true) {
+  function selectTab(id, dismiss = false) {
     activeId = id;
     section = "Assistir";
+    if (dismiss) managerOpen = false;
     render();
-    if (focus) byId("tab-" + id).focus();
+    if (dismiss) byId("toggle").focus();
   }
 
   function closeTab(id) {
@@ -153,7 +151,7 @@
     tabs.splice(destination, 0, tab);
     render();
     const move = byId(offset < 0 ? "earlier" : "later");
-    if (move.disabled) byId("tab-" + activeId).focus();
+    if (move.disabled) byId("query").focus();
   }
 
   function renderRows() {
@@ -162,7 +160,7 @@
     byId("rows").replaceChildren(...visible.map((tab) => {
       const row = document.createElement("div");
       row.className = "row" + (tab.id === activeId ? " active" : "");
-      const select = button("", "row-select", "Selecionar " + tab.title, () => selectTab(tab.id));
+      const select = button("", "row-select", "Selecionar " + tab.title, () => selectTab(tab.id, true));
       if (tab.id === activeId) select.setAttribute("aria-current", "true");
       const label = document.createElement("span");
       const name = document.createElement("span");
@@ -190,33 +188,12 @@
     byId("manager").hidden = !watching || !managerOpen;
     byId("toggle").setAttribute("aria-expanded", String(managerOpen));
     byId("count").textContent = tabs.length;
-    byId("tabs").replaceChildren(...tabs.map((item) => {
-      const wrapper = document.createElement("div");
-      const selected = item.id === activeId;
-      wrapper.className = "tab" + (selected ? " active" : "");
-      wrapper.setAttribute("role", "presentation");
-      const select = button("", "tab-select", null, () => selectTab(item.id));
-      select.id = "tab-" + item.id;
-      select.setAttribute("role", "tab");
-      select.setAttribute("aria-controls", "page");
-      select.setAttribute("aria-selected", String(selected));
-      select.tabIndex = selected ? 0 : -1;
-      const icon = document.createElement("span");
-      icon.className = "icon mark";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = item.id === playingId ? "◖))" : "▶";
-      const title = document.createElement("span");
-      title.className = "truncate";
-      title.textContent = item.title;
-      select.title = item.title;
-      select.append(icon, title);
-      const close = button("×", "close", "Fechar " + item.title, () => closeTab(item.id));
-      close.tabIndex = -1;
-      wrapper.append(select, close);
-      return wrapper;
-    }));
-    byId("page").setAttribute("role", watching ? "tabpanel" : "region");
-    byId("page").setAttribute("aria-labelledby", watching ? "tab-" + activeId : "page-title");
+    byId("active-title").textContent = tab.title;
+    byId("toggle").title = tab.title;
+    const background = playingId !== null && playingId !== activeId;
+    byId("tab-activity").textContent = background ? "◖))" : "▶";
+    byId("toggle").setAttribute("aria-label",
+      tab.title + " · " + tabs.length + " abas" + (background ? " · áudio em outra aba" : ""));
     byId("screen").hidden = !watching || tab.kind !== "video";
     byId("play").textContent = playingId === activeId ? "Pausar reprodução" : "Simular reprodução";
     byId("page-title").textContent = watching ? tab.title : section;
@@ -243,28 +220,26 @@
     byId("toggle").focus();
   });
   byId("query").addEventListener("input", renderRows);
+  byId("query").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") byId("rows").querySelector(".row-select")?.click();
+  });
   byId("earlier").addEventListener("click", () => moveActive(-1));
   byId("later").addEventListener("click", () => moveActive(1));
   byId("play").addEventListener("click", () => {
     playingId = playingId === activeId ? null : activeId;
     render();
   });
-  byId("tabs").addEventListener("keydown", (event) => {
-    const index = tabs.findIndex((tab) => tab.id === activeId);
-    if (event.key === "Delete") {
+  byId("manager").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
       event.preventDefault();
-      closeTab(activeId);
-      return;
+      byId("dismiss").click();
     }
-    const destination = {
-      ArrowLeft: (index + tabs.length - 1) % tabs.length,
-      ArrowRight: (index + 1) % tabs.length,
-      Home: 0,
-      End: tabs.length - 1,
-    }[event.key];
-    if (destination === undefined) return;
-    event.preventDefault();
-    selectTab(tabs[destination].id);
+  });
+  document.addEventListener("click", (event) => {
+    const path = event.composedPath();
+    if (!managerOpen || path.includes(byId("manager")) || path.includes(byId("strip"))) return;
+    managerOpen = false;
+    render();
   });
   render();
 </script>

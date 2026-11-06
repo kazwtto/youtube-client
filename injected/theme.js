@@ -92,8 +92,6 @@
     mastheadGlass: ["#frosted-glass.ytd-app"],
 
     // Search field: the host stays clear, the field is a control.
-    searchHost: ["ytd-searchbox"],
-    searchField: ["ytd-searchbox #search-form"],
 
     // Navigation: the persistent guide and the rail sit on the base layer; the
     // overlay drawer is a transient acrylic surface.
@@ -304,8 +302,6 @@
       : [palette.border, palette.border, palette.border];
 
     const tokens = {
-      "color-scheme": palette.dark ? "dark" : "light",
-
       // Backgrounds, from the page canvas up to raised panels.
       "--yt-spec-base-background": surfaces.canvas,
       "--yt-spec-general-background-a": surfaces.canvas,
@@ -345,12 +341,13 @@
       tokens["--yt-spec-button-chip-background-hover"] = surfaces.controlHover;
       tokens["--yt-spec-additive-background"] = surfaces.control;
       tokens["--yt-spec-outline"] = palette.border;
-      tokens["--ytd-searchbox-background"] = surfaces.control;
-      tokens["--ytd-searchbox-border-color"] = palette.border;
-      tokens["--ytd-searchbox-legacy-button-color"] = surfaces.controlHover;
     }
 
-    return [`:root, html, html[dark] {\n${declare(tokens)}\n}`];
+    // Keep YouTube's original tokens in its search masthead and suggestions.
+    return [
+      `html { color-scheme: ${palette.dark ? "dark" : "light"}; }`,
+      `ytd-page-manager, #guide.ytd-app, ytd-mini-guide-renderer.ytd-app {\n${declare(tokens)}\n}`,
+    ];
   }
 
   /// The document canvas and text selection.
@@ -381,10 +378,6 @@
         Object.assign({}, CLEAR, frosted("none")),
       ),
       rule(scope(SELECTORS.mastheadBlur), frosted(BLUR.frame)),
-
-      // The search field is a control and keeps a visible fill.
-      rule(scope(SELECTORS.searchHost), CLEAR),
-      rule(scope(SELECTORS.searchField), { background: surfaces.control }),
 
       // Navigation. The persistent guide and the rail are part of the base
       // layer; the overlay drawer opens on top of content, so it is acrylic.
@@ -752,27 +745,12 @@
       style = document.createElement("style");
       style.id = MASTHEAD_STYLE_ID;
       style.textContent = `
-        #masthead-container, ytd-masthead, #ticker.ytd-masthead, #interstitial.ytd-masthead {
-          display: none !important;
-          height: 0 !important;
-          min-height: 0 !important;
-          max-height: 0 !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          pointer-events: none !important;
+        /* Keep the original center region and its dropdown in the site DOM.
+           Preserve the side regions' widths so YouTube lays out its own search. */
+        ytd-masthead #start.ytd-masthead,
+        ytd-masthead #end.ytd-masthead {
           visibility: hidden !important;
-        }
-        :root, html, body, ytd-app {
-          --ytd-masthead-height: 0px !important;
-          --ytd-toolbar-offset: 0px !important;
-        }
-        ytd-page-manager#page-manager {
-          margin-top: 0px !important;
-          padding-top: 0px !important;
-        }
-        #guide.ytd-app, ytd-mini-guide-renderer.ytd-app, #contentContainer.tp-yt-app-drawer {
-          top: 0px !important;
-          padding-top: 0px !important;
+          pointer-events: none !important;
         }
       `;
       const parent = document.head || document.documentElement;

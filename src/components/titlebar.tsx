@@ -28,55 +28,6 @@ interface Tab {
   icon: IconName;
 }
 
-interface Suggestion {
-  text: string;
-  isHistory: boolean;
-}
-
-const TABS: readonly Tab[] = [
-  { id: "home", labelKey: "nav.watch", icon: "home" },
-  { id: "history", labelKey: "nav.history", icon: "history" },
-  { id: "extensions", labelKey: "nav.extensions", icon: "extensions" },
-  { id: "rpc", labelKey: "nav.discord", icon: "discord" },
-  { id: "settings", labelKey: "nav.settings", icon: "settings" },
-];
-
-const SEARCH_HISTORY_KEY = "ytdesktop_search_history";
-
-function getSearchHistory(): string[] {
-  try {
-    const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveSearchHistoryQuery(query: string): void {
-  const trimmed = query.trim();
-  if (!trimmed) return;
-  try {
-    const current = getSearchHistory().filter((item) => item.toLowerCase() !== trimmed.toLowerCase());
-    current.unshift(trimmed);
-    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(current.slice(0, 15)));
-  } catch {
-    // Storage can be unavailable or full; search still works without history.
-  }
-}
-
-function removeSearchHistoryQuery(query: string): void {
-  try {
-    localStorage.setItem(
-      SEARCH_HISTORY_KEY,
-      JSON.stringify(getSearchHistory().filter((item) => item.toLowerCase() !== query.toLowerCase())),
-    );
-  } catch {
-    // Storage can be unavailable; leave the menu usable.
-  }
-}
-
 interface TitlebarState {
   active: () => RouteId;
   setActive: (id: RouteId) => void;
@@ -92,17 +43,10 @@ interface TitlebarState {
 
 function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; state: TitlebarState }) {
   const { state } = props;
-  const [query, setQuery] = createSignal("");
-  const [suggestions, setSuggestions] = createSignal<Suggestion[]>([]);
-  const [selectedIndex, setSelectedIndex] = createSignal(-1);
   const [maximized, setMaximized] = createSignal(false);
   const [avatarFailed, setAvatarFailed] = createSignal(false);
   let avatarImage!: HTMLImageElement;
-  let searchContainer!: HTMLDivElement;
-  let searchInput!: HTMLInputElement;
   let authContainer!: HTMLDivElement;
-  let suggestTimer: number | undefined;
-  let latestSuggestionRequest = 0;
   let lastMenuCloseTime = 0;
   let disposed = false;
   const unlisteners: UnlistenFn[] = [];
@@ -121,66 +65,6 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
     props.bar.classList.toggle("titlebar--icons-mode", state.style() === "icons");
     props.bar.classList.toggle("titlebar--integrated-masthead", state.integrated());
   });
-
-  const closeSuggestions = (): void => {
-    latestSuggestionRequest += 1;
-    if (suggestTimer !== undefined) {
-      window.clearTimeout(suggestTimer);
-      suggestTimer = undefined;
-    }
-    setSuggestions([]);
-    setSelectedIndex(-1);
-    void api.setUiElevation(false).catch(() => undefined);
-  };
-
-  const showSuggestions = (items: Suggestion[]): void => {
-    setSuggestions(items);
-    setSelectedIndex(-1);
-    void api.setUiElevation(items.length > 0).catch(() => undefined);
-  };
-
-  const submitSearch = (raw: string): void => {
-    const value = raw.trim();
-    if (!value) return;
-    saveSearchHistoryQuery(value);
-    setQuery(value);
-    closeSuggestions();
-    props.actions.onNavigate("home");
-    void api.ytNavigate(`search:${encodeURIComponent(value)}`);
-  };
-
-  const updateSearchDropdown = async (): Promise<void> => {
-    const rawValue = searchInput.value;
-    const normalized = rawValue.trim().toLowerCase();
-    const history = getSearchHistory();
-    const request = ++latestSuggestionRequest;
-    if (!normalized) {
-      showSuggestions(history.map((text) => ({ text, isHistory: true })));
-      return;
-    }
-
-    const matchedHistory = history
-      .filter((item) => item.toLowerCase().includes(normalized))
-      .map((text) => ({ text, isHistory: true }));
-    try {
-      const remote = await api.fetchSuggestions(rawValue);
-      if (request !== latestSuggestionRequest || document.activeElement !== searchInput || searchInput.value !== rawValue) return;
-      const filtered = remote
-        .filter((item) => !matchedHistory.some((historyItem) => historyItem.text.toLowerCase() === item.toLowerCase()))
-        .map((text) => ({ text, isHistory: false }));
-      showSuggestions([...matchedHistory, ...filtered]);
-    } catch {
-      if (request !== latestSuggestionRequest || document.activeElement !== searchInput || searchInput.value !== rawValue) return;
-      showSuggestions(matchedHistory);
-    }
-  };
-
-  const highlight = (index: number): void => {
-    const items = suggestions();
-    if (index < 0 || index >= items.length) return;
-    setSelectedIndex(index);
-    setQuery(items[index].text);
-  };
 
   const toggleAuthMenu = async (): Promise<void> => {
     if (Date.now() - lastMenuCloseTime < 220) return;
@@ -212,7 +96,7 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
       case "forward":
       case "reload":
       case "guide":
-      case "voice":
+
         await api.ytNavigate(action);
         break;
       case "toggle-auth-menu":
@@ -246,20 +130,18 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
   const onDocumentClick = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof Node)) return;
-    if (!searchContainer.contains(target)) closeSuggestions();
     if (!authContainer.contains(target)) void api.hideContextMenu().catch(() => undefined);
   };
 
   const onDocumentKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== "Escape") return;
     void api.hideContextMenu().catch(() => undefined);
-    if (suggestions().length > 0) closeSuggestions();
   };
 
   const onBarDoubleClick = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest("button, [data-route], .titlebar__search-box")) return;
+    if (target.closest("button, [data-route]")) return;
     runAction("toggle-maximize");
   };
 
@@ -313,8 +195,6 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
       document.removeEventListener("keydown", onDocumentKeyDown);
       props.bar.removeEventListener("dblclick", onBarDoubleClick);
       for (const stop of unlisteners) stop();
-      if (suggestTimer !== undefined) window.clearTimeout(suggestTimer);
-      void api.setUiElevation(false).catch(() => undefined);
     });
   });
 
@@ -378,90 +258,6 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
         {navigationButton("reload", "titlebar.reload", "reload")}
       </div>
       <div class="titlebar__spacer titlebar__spacer--left" data-tauri-drag-region />
-
-      <div class="titlebar__search-container" role="search" hidden={!state.integrated()} ref={searchContainer}>
-        <div class="titlebar__search-box">
-          <div class="titlebar__search-input-wrapper">
-            <input
-              type="text"
-              class="titlebar__search-input"
-              value={query()}
-              placeholder={t("titlebar.search")}
-              autocomplete="off"
-              spellcheck={false}
-              aria-label={t("titlebar.search")}
-              role="combobox"
-              aria-autocomplete="list"
-              aria-controls="titlebar-search-suggestions"
-              aria-expanded={suggestions().length > 0}
-              aria-activedescendant={selectedIndex() >= 0 ? `titlebar-suggestion-${selectedIndex()}` : undefined}
-              ref={searchInput}
-              onFocus={() => void updateSearchDropdown()}
-              onInput={(event) => {
-                setQuery(event.currentTarget.value);
-                setSelectedIndex(-1);
-                if (suggestTimer !== undefined) window.clearTimeout(suggestTimer);
-                suggestTimer = window.setTimeout(() => void updateSearchDropdown(), 120);
-              }}
-              onKeyDown={(event) => {
-                const items = suggestions();
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitSearch(selectedIndex() >= 0 ? items[selectedIndex()]?.text ?? query() : query());
-                } else if (items.length > 0 && event.key === "ArrowDown") {
-                  event.preventDefault();
-                  highlight(selectedIndex() + 1 < items.length ? selectedIndex() + 1 : 0);
-                } else if (items.length > 0 && event.key === "ArrowUp") {
-                  event.preventDefault();
-                  highlight(selectedIndex() - 1 >= 0 ? selectedIndex() - 1 : items.length - 1);
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  closeSuggestions();
-                }
-              }}
-            />
-            <button type="button" class="titlebar__search-clear" title={t("titlebar.clearSearch")} aria-label={t("titlebar.clearSearch")} hidden={query().length === 0} onClick={() => {
-              setQuery("");
-              setSelectedIndex(-1);
-              searchInput.focus();
-              void updateSearchDropdown();
-            }}>
-              <Icon name="clear" size={18} style={{ pointerEvents: "none" }} />
-            </button>
-          </div>
-          <button type="button" class="titlebar__search-submit" title={t("titlebar.search")} aria-label={t("titlebar.search")} onClick={() => submitSearch(query())}>
-            <Icon name="search" source="youtube" size={20} style={{ pointerEvents: "none", display: "inherit" }} />
-          </button>
-        </div>
-        <button type="button" class="titlebar__voice-button" data-action="voice" title={t("titlebar.voiceSearch")} aria-label={t("titlebar.voiceSearch")} onClick={() => runAction("voice")}>
-          <Icon name="voice" size={20} style={{ pointerEvents: "none", display: "inherit" }} />
-        </button>
-        <div id="titlebar-search-suggestions" class="titlebar__search-suggestions" role="group" aria-label={t("titlebar.searchSuggestions")} hidden={suggestions().length === 0}>
-          <For each={suggestions()}>
-            {(item, index) => (
-              <div
-                class="titlebar__suggestion-item"
-                classList={{ "titlebar__suggestion-item--history": item.isHistory, "titlebar__suggestion-item--selected": selectedIndex() === index() }}
-              >
-                <button type="button" class="titlebar__suggestion-choice" id={`titlebar-suggestion-${index()}`} aria-current={selectedIndex() === index() ? "true" : undefined} onClick={() => submitSearch(item.text)}>
-                  <Icon name={item.isHistory ? "history" : "search"} source="youtube" size={18} class="titlebar__suggestion-icon" style={{ pointerEvents: "none" }} />
-                  <span class="titlebar__suggestion-text">{item.text}</span>
-                </button>
-                <Show when={item.isHistory}>
-                  <button type="button" class="titlebar__suggestion-remove" title={t("titlebar.removeSearchHistory")} aria-label={t("titlebar.removeSearch")} onClick={(event) => {
-                    event.stopPropagation();
-                    removeSearchHistoryQuery(item.text);
-                    void updateSearchDropdown();
-                    searchInput.focus();
-                  }}>
-                    <Icon name="clear" size={16} style={{ pointerEvents: "none" }} />
-                  </button>
-                </Show>
-              </div>
-            )}
-          </For>
-        </div>
-      </div>
 
       <div class="titlebar__spacer titlebar__spacer--right" data-tauri-drag-region />
       <nav class="titlebar__tabs" role="tablist" aria-label={t("titlebar.appActions")} hidden={state.style() === "icons"}>

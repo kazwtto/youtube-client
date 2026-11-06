@@ -21,11 +21,6 @@
   width: 100%;
 }
 
-/* The suggestion list opens below the fixed-height title bar. */
-.titlebar:has(.titlebar__search-suggestions:not([hidden])) {
-  overflow: visible;
-}
-
 .titlebar__brand {
   display: flex;
   align-items: center;

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YT Desktop · Protótipo de abas</title>
+<style>
+  :root { color-scheme: dark; font: 14px system-ui, sans-serif; background: #101115; color: #f5f4f8; }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 1120px; padding: clamp(14px, 4vw, 48px); }
+  h1, h2, p { margin: 0; }
+  h1 { font-size: clamp(26px, 4vw, 40px); letter-spacing: -.05em; }
+  .intro { color: #b8b6c3; margin: 8px 0 24px; }
+  button, input { font: inherit; }
+  button { color: inherit; border: 0; border-radius: 8px; background: transparent; cursor: pointer; padding: 8px 11px; }
+  button:hover { background: #ffffff13; }
+  :focus-visible { outline: 2px solid #ff8299; outline-offset: -2px; }
+  [hidden] { display: none !important; }
+  .window { background: #17181e; border: 1px solid #383842; border-radius: 14px; overflow: hidden; }
+  .titlebar, .strip, .manager-head { display: flex; align-items: center; gap: 7px; padding: 7px 10px; }
+  .titlebar { min-height: 40px; background: #202127; flex-wrap: wrap; }
+  .brand { padding: 0 8px; font-weight: 650; white-space: nowrap; }
+  .mark { color: #ff4268; margin-right: 5px; }
+  .sections { display: flex; gap: 2px; flex-wrap: wrap; }
+  .sections [aria-pressed="true"] { background: #ffffff13; }
+  .strip { border-block: 1px solid #30313a; }
+  .tabs { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; }
+  .tab { display: flex; align-items: center; flex: 0 0 clamp(112px, 20vw, 188px); border-radius: 8px; min-width: 0; }
+  .tab.active { background: #30303a; box-shadow: inset 0 -2px #ff4268; }
+  .tab-select, .row-select { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; text-align: left; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icon { flex: none; }
+  .close { padding-inline: 8px; color: #c6c3ce; }
+  .strip > button { flex: none; white-space: nowrap; }
+  .workspace { position: relative; min-height: 440px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(270px, 34%); }
+  .workspace:has(.manager[hidden]) { grid-template-columns: minmax(0, 1fr); }
+  .page { min-width: 0; padding: clamp(16px, 3vw, 30px); }
+  .screen { display: grid; place-items: center; aspect-ratio: 16 / 9; border-radius: 12px; background: radial-gradient(ellipse at 70% 20%, #743b58, transparent 70%), linear-gradient(135deg, #37264e, #191921); }
+  .screen button { background: #17171de6; border: 1px solid #ffffff36; padding: 12px 20px; }
+  .page h2 { margin-top: 14px; font-size: 20px; }
+  .muted, .status { color: #b8b6c3; }
+  .page .muted { margin-top: 7px; }
+  .manager { padding: 8px 10px 12px; border-left: 1px solid #383842; background: #202127; }
+  .manager-head { justify-content: space-between; padding-inline: 5px; }
+  .manager h2 { font-size: 16px; }
+  .manager input { width: 100%; margin: 4px 0 10px; padding: 9px 11px; color: inherit; background: #15161b; border: 1px solid #43434e; border-radius: 8px; }
+  .row { display: flex; align-items: center; border-radius: 8px; }
+  .row.active { background: #30303a; }
+  .row-select > span:last-child { display: grid; min-width: 0; gap: 3px; }
+  .row small { color: #c2bfcc; }
+  .manager-actions { display: flex; gap: 6px; border-top: 1px solid #393943; margin-top: 10px; padding-top: 8px; }
+  .manager-actions button { flex: 1; background: #ffffff0b; }
+  .manager-actions button:disabled { opacity: .45; cursor: default; }
+  .status { min-height: 42px; padding: 11px 14px; border-top: 1px solid #30313a; }
+  @media (max-width: 680px) {
+    .workspace { grid-template-columns: minmax(0, 1fr); }
+    .manager { border-left: 0; border-top: 1px solid #383842; }
+  }
+</style>
+<h1>Abas no YT Desktop</h1>
+<p class="intro">Protótipo interativo · O seletor fica em Assistir e o painel encontra abas fora da faixa visível.</p>
+<main class="window">
+  <header class="titlebar">
+    <span class="brand"><span class="mark" aria-hidden="true">▶</span>YT Desktop</span>
+    <nav class="sections" aria-label="Seções do aplicativo">
+      <button type="button" data-section="Assistir" aria-pressed="true">Assistir</button>
+      <button type="button" data-section="Histórico" aria-pressed="false">Histórico</button>
+      <button type="button" data-section="Extensões" aria-pressed="false">Extensões</button>
+      <button type="button" data-section="Discord" aria-pressed="false">Discord</button>
+      <button type="button" data-section="Ajustes" aria-pressed="false">Ajustes</button>
+    </nav>
+  </header>
+  <div class="strip" id="strip">
+    <div class="tabs" id="tabs" role="tablist" aria-label="Abas do YouTube"></div>
+    <button type="button" id="add" aria-label="Nova aba" title="Nova aba">＋</button>
+    <button type="button" id="toggle" aria-controls="manager" aria-expanded="true">☰ <span id="count"></span> abas</button>
+  </div>
+  <div class="workspace">
+    <section class="page" id="page" role="tabpanel">
+      <div class="screen" id="screen"><button type="button" id="play"></button></div>
+      <h2 id="page-title"></h2>
+      <p class="muted" id="page-detail"></p>
+    </section>
+    <aside class="manager" id="manager" aria-labelledby="manager-title">
+      <div class="manager-head">
+        <h2 id="manager-title">Gerenciar abas</h2>
+        <button type="button" id="dismiss" class="close" aria-label="Fechar gerenciador">×</button>
+      </div>
+      <input id="query" type="search" placeholder="Buscar por título ou endereço" aria-label="Buscar abas abertas">
+      <div id="rows"></div>
+      <div class="manager-actions">
+        <button type="button" id="earlier">↑ Mover antes</button>
+        <button type="button" id="later">↓ Mover depois</button>
+      </div>
+    </aside>
+  </div>
+  <div class="status" id="status" role="status"></div>
+</main>
+<script>
+  const byId = (id) => document.getElementById(id);
+  const tabs = [
+    { id: 1, title: "Página inicial", url: "youtube.com", kind: "home" },
+    { id: 2, title: "Lo-fi para trabalhar", url: "youtube.com/watch?v=lofi", kind: "video" },
+    { id: 3, title: "Como funciona o WebView2", url: "youtube.com/watch?v=webview", kind: "video" },
+  ];
+  let nextId = 4;
+  let activeId = 3;
+  let playingId = 2;
+  let section = "Assistir";
+  let managerOpen = true;
+
+  function button(text, className, label, action) {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = className;
+    element.textContent = text;
+    if (label) element.setAttribute("aria-label", label);
+    element.addEventListener("click", action);
+    return element;
+  }
+
+  function addTab() {
+    const id = nextId++;
+    tabs.push({ id, title: "Nova aba", url: "youtube.com", kind: "home" });
+    byId("query").value = "";
+    selectTab(id);
+  }
+
+  function selectTab(id, focus = true) {
+    activeId = id;
+    section = "Assistir";
+    render();
+    if (focus) byId("tab-" + id).focus();
+  }
+
+  function closeTab(id) {
+    const index = tabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+    tabs.splice(index, 1);
+    if (playingId === id) playingId = null;
+    if (!tabs.length) {
+      addTab();
+    } else {
+      if (activeId === id) activeId = tabs[Math.min(index, tabs.length - 1)].id;
+      selectTab(activeId);
+    }
+  }
+
+  function moveActive(offset) {
+    const index = tabs.findIndex((tab) => tab.id === activeId);
+    const destination = index + offset;
+    if (destination < 0 || destination >= tabs.length) return;
+    const [tab] = tabs.splice(index, 1);
+    tabs.splice(destination, 0, tab);
+    render();
+    const move = byId(offset < 0 ? "earlier" : "later");
+    if (move.disabled) byId("tab-" + activeId).focus();
+  }
+
+  function renderRows() {
+    const query = byId("query").value.trim().toLocaleLowerCase("pt-BR");
+    const visible = tabs.filter((tab) => (tab.title + " " + tab.url).toLocaleLowerCase("pt-BR").includes(query));
+    byId("rows").replaceChildren(...visible.map((tab) => {
+      const row = document.createElement("div");
+      row.className = "row" + (tab.id === activeId ? " active" : "");
+      const select = button("", "row-select", "Selecionar " + tab.title, () => selectTab(tab.id));
+      if (tab.id === activeId) select.setAttribute("aria-current", "true");
+      const label = document.createElement("span");
+      const name = document.createElement("span");
+      name.className = "truncate";
+      name.textContent = tab.title;
+      const description = document.createElement("small");
+      description.className = "truncate";
+      description.textContent = tab.id === playingId ? "▶ Reproduzindo" : tab.id === activeId ? "Aba ativa" : tab.url;
+      label.append(name, description);
+      select.append(label);
+      row.append(select, button("×", "close", "Fechar " + tab.title, () => closeTab(tab.id)));
+      return row;
+    }));
+    if (!visible.length) byId("rows").textContent = "Nenhuma aba encontrada.";
+  }
+
+  function render() {
+    const index = tabs.findIndex((tab) => tab.id === activeId);
+    const tab = tabs[index];
+    const watching = section === "Assistir";
+    document.querySelectorAll("[data-section]").forEach((control) => {
+      control.setAttribute("aria-pressed", String(control.dataset.section === section));
+    });
+    byId("strip").hidden = !watching;
+    byId("manager").hidden = !watching || !managerOpen;
+    byId("toggle").setAttribute("aria-expanded", String(managerOpen));
+    byId("count").textContent = tabs.length;
+    byId("tabs").replaceChildren(...tabs.map((item) => {
+      const wrapper = document.createElement("div");
+      const selected = item.id === activeId;
+      wrapper.className = "tab" + (selected ? " active" : "");
+      wrapper.setAttribute("role", "presentation");
+      const select = button("", "tab-select", null, () => selectTab(item.id));
+      select.id = "tab-" + item.id;
+      select.setAttribute("role", "tab");
+      select.setAttribute("aria-controls", "page");
+      select.setAttribute("aria-selected", String(selected));
+      select.tabIndex = selected ? 0 : -1;
+      const icon = document.createElement("span");
+      icon.className = "icon mark";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = item.id === playingId ? "◖))" : "▶";
+      const title = document.createElement("span");
+      title.className = "truncate";
+      title.textContent = item.title;
+      select.title = item.title;
+      select.append(icon, title);
+      const close = button("×", "close", "Fechar " + item.title, () => closeTab(item.id));
+      close.tabIndex = -1;
+      wrapper.append(select, close);
+      return wrapper;
+    }));
+    byId("page").setAttribute("role", watching ? "tabpanel" : "region");
+    byId("page").setAttribute("aria-labelledby", watching ? "tab-" + activeId : "page-title");
+    byId("screen").hidden = !watching || tab.kind !== "video";
+    byId("play").textContent = playingId === activeId ? "Pausar reprodução" : "Simular reprodução";
+    byId("page-title").textContent = watching ? tab.title : section;
+    byId("page-detail").textContent = watching ? tab.url : "As abas ficam abertas ao navegar por esta seção.";
+    byId("earlier").disabled = index === 0;
+    byId("later").disabled = index === tabs.length - 1;
+    const playing = tabs.find((item) => item.id === playingId);
+    byId("status").textContent = playing ? "▶ Em reprodução · " + playing.title : "Nenhuma aba em reprodução";
+    renderRows();
+  }
+
+  document.querySelectorAll("[data-section]").forEach((control) => {
+    control.addEventListener("click", () => { section = control.dataset.section; render(); });
+  });
+  byId("add").addEventListener("click", addTab);
+  byId("toggle").addEventListener("click", () => {
+    managerOpen = !managerOpen;
+    render();
+    if (managerOpen) byId("query").focus();
+  });
+  byId("dismiss").addEventListener("click", () => {
+    managerOpen = false;
+    render();
+    byId("toggle").focus();
+  });
+  byId("query").addEventListener("input", renderRows);
+  byId("earlier").addEventListener("click", () => moveActive(-1));
+  byId("later").addEventListener("click", () => moveActive(1));
+  byId("play").addEventListener("click", () => {
+    playingId = playingId === activeId ? null : activeId;
+    render();
+  });
+  byId("tabs").addEventListener("keydown", (event) => {
+    const index = tabs.findIndex((tab) => tab.id === activeId);
+    if (event.key === "Delete") {
+      event.preventDefault();
+      closeTab(activeId);
+      return;
+    }
+    const destination = {
+      ArrowLeft: (index + tabs.length - 1) % tabs.length,
+      ArrowRight: (index + 1) % tabs.length,
+      Home: 0,
+      End: tabs.length - 1,
+    }[event.key];
+    if (destination === undefined) return;
+    event.preventDefault();
+    selectTab(tabs[destination].id);
+  });
+  render();
+</script>
+</html>

@@ -718,6 +718,23 @@
     wait();
   };
 
+  function rememberYoutubePage() {
+    if (window !== window.top || !window.__TAURI_INTERNALS__ || !window.__TAURI_INTERNALS__.invoke) return;
+    const url = window.location.href;
+    if (url === lastRememberedPage) return;
+    lastRememberedPage = url;
+    window.__TAURI_INTERNALS__
+      .invoke("remember_youtube_page", { url })
+      .catch(function () {
+        lastRememberedPage = "";
+      });
+  }
+
+  if (window === window.top) {
+    window.addEventListener("load", rememberYoutubePage, { once: true });
+    window.addEventListener("yt-navigate-finish", rememberYoutubePage);
+    window.addEventListener("popstate", rememberYoutubePage);
+  }
 
   // Runs from the native page-load hook after every navigation: YouTube
   // rewrites its head styles during SPA navigation, so the theme sheet is
@@ -730,55 +747,403 @@
     }
   };
 
+  if (window === window.top) {
+    let themeReapplyFrame = 0;
+    window.addEventListener("yt-navigate-finish", () => {
+      if (themeReapplyFrame) cancelAnimationFrame(themeReapplyFrame);
+      themeReapplyFrame = requestAnimationFrame(() => {
+        themeReapplyFrame = requestAnimationFrame(() => {
+          themeReapplyFrame = 0;
+          window.__ytdesktopReapplyTheme();
+        });
+      });
+    });
+  }
+
   /* ---------------------------------------------------------------------- *
    * 6. Bootstrap
    * ---------------------------------------------------------------------- */
 
   const MASTHEAD_STYLE_ID = "ytdesktop-masthead-hide";
-  const MASTHEAD_SETTING_KEY = "ytdesktop-masthead-integrated";
+  const SEARCH_SUGGESTION_STYLE_ID = "ytdesktop-search-suggestions";
+  const removedGuideHeaders = new Map();
+  const guideHeaderObservers = new Map();
+  const searchSuggestionPopups = new Map();
+  const searchSuggestionObservers = new Map();
+  const SEARCH_POPUP_SELECTORS = [
+    ".ytSearchboxComponentSuggestionsContainer",
+    "yt-searchbox [role='listbox']",
+    "ytd-searchbox [role='listbox']",
+    "yt-searchbox #suggestions",
+    "ytd-searchbox #suggestions",
+    ".gstl_50",
+    ".sbsb_a",
+  ];
+  const SEARCH_INPUT_SELECTORS = [
+    "ytd-searchbox input#search",
+    "ytd-searchbox input[name='search_query']",
+    "yt-searchbox input",
+    ".ytSearchboxComponentInput",
+    ".ytSearchboxComponentInputTextArea",
+    "input#searchbox-input",
+    "input#search",
+    "input[name='search_query']",
+    "textarea[name='search_query']",
+  ];
+  let searchSuggestionInput = null;
+  let searchSuggestionInputStyles = null;
+  let searchSuggestionTimer = 0;
+  let searchSuggestionLayout = null;
 
-  function setMastheadIntegrated(integrated, persist) {
+  function youtubeSearchRoots() {
+    const masthead = document.querySelector("#masthead-container") || document.querySelector("ytd-masthead");
+    if (!masthead) return [];
+    const roots = [masthead];
+    const visited = new Set();
+    for (let index = 0; index < roots.length; index += 1) {
+      const root = roots[index];
+      if (!root || visited.has(root)) continue;
+      visited.add(root);
+      if (root.shadowRoot) roots.push(root.shadowRoot);
+      if (typeof root.querySelectorAll !== "function") continue;
+      root.querySelectorAll("*").forEach((element) => {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+      });
+    }
+    return Array.from(visited);
+  }
+
+  function visitSearchRoots(callback) {
+    for (const root of youtubeSearchRoots()) callback(root);
+  }
+
+  function findYoutubeSearchInput() {
+    let found = null;
+    const roots = youtubeSearchRoots();
+    if (!roots.length) roots.push(document);
+    for (const root of roots) {
+      if (found) break;
+      if (typeof root.querySelector !== "function") continue;
+      for (const selector of SEARCH_INPUT_SELECTORS) {
+        const field = root.querySelector(selector);
+        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+          found = field;
+          break;
+        }
+      }
+    }
+    return found;
+  }
+
+  function setInlineProperties(element, properties) {
+    const previous = new Map();
+    for (const [name, value] of Object.entries(properties)) {
+      previous.set(name, [element.style.getPropertyValue(name), element.style.getPropertyPriority(name)]);
+      element.style.setProperty(name, value, "important");
+    }
+    return previous;
+  }
+
+  function restoreInlineProperties(element, previous) {
+    if (!element || !previous) return;
+    for (const [name, [value, priority]] of previous) {
+      if (value) element.style.setProperty(name, value, priority);
+      else element.style.removeProperty(name);
+    }
+  }
+
+  function findYoutubeSearchPopups() {
+    const found = [];
+    const roots = [document, ...youtubeSearchRoots()];
+    for (const root of roots) {
+      if (typeof root.querySelectorAll !== "function") continue;
+      for (const selector of SEARCH_POPUP_SELECTORS) {
+        root.querySelectorAll(selector).forEach((popup) => {
+          if (!found.includes(popup)) found.push(popup);
+        });
+      }
+    }
+    return found;
+  }
+
+  function positionYoutubeSearchPopups() {
+    if (!searchSuggestionLayout) return;
+    const [left, width] = searchSuggestionLayout;
+    for (const popup of findYoutubeSearchPopups()) {
+      if (!popup.getClientRects().length) continue;
+      if (!searchSuggestionPopups.has(popup)) {
+        searchSuggestionPopups.set(popup, setInlineProperties(popup, {
+          position: "fixed",
+          top: "0px",
+          left: `${left}px`,
+          width: `${width}px`,
+          margin: "0px",
+          transform: "none",
+          "z-index": "2147483646",
+          visibility: "visible",
+          "pointer-events": "auto",
+        }));
+      } else {
+        popup.style.setProperty("left", `${left}px`, "important");
+        popup.style.setProperty("width", `${width}px`, "important");
+      }
+    }
+  }
+
+  function closeYoutubeSearchSuggestions() {
+    window.clearTimeout(searchSuggestionTimer);
+    searchSuggestionTimer = 0;
+    searchSuggestionLayout = null;
+    for (const observer of searchSuggestionObservers.values()) observer.disconnect();
+    searchSuggestionObservers.clear();
+    for (const [popup, previous] of searchSuggestionPopups) {
+      restoreInlineProperties(popup, previous);
+    }
+    searchSuggestionPopups.clear();
+    document.documentElement?.removeAttribute("data-ytdesktop-suggestions");
+    if (searchSuggestionInput) {
+      searchSuggestionInput.blur();
+      restoreInlineProperties(searchSuggestionInput, searchSuggestionInputStyles);
+    }
+    searchSuggestionInput = null;
+    searchSuggestionInputStyles = null;
+  }
+
+  document.addEventListener("pointerdown", (event) => {
+    const path = event.composedPath();
+    const insidePopup = Array.from(searchSuggestionPopups.keys()).some(
+      (popup) => path.includes(popup) || popup.contains(event.target),
+    );
+    if (!insidePopup) closeYoutubeSearchSuggestions();
+  }, true);
+  window.addEventListener("yt-navigate-start", closeYoutubeSearchSuggestions);
+
+  function observeYoutubeSearchRoot(root) {
+    if (searchSuggestionObservers.has(root)) return;
+    const observer = new MutationObserver(() => {
+      visitSearchRoots(observeYoutubeSearchRoot);
+      positionYoutubeSearchPopups();
+    });
+    const options = { childList: true, subtree: true };
+    if (root !== document.documentElement) {
+      options.attributes = true;
+      options.attributeFilter = ["hidden", "class", "aria-hidden"];
+    }
+    observer.observe(root, options);
+    searchSuggestionObservers.set(root, observer);
+  }
+
+  function updateYoutubeSearchSuggestions(query, left, width, attempt = 0) {
+    window.clearTimeout(searchSuggestionTimer);
+    if (!width || !document.documentElement) {
+      closeYoutubeSearchSuggestions();
+      return;
+    }
+
+    searchSuggestionLayout = [left, width];
+    document.documentElement.setAttribute("data-ytdesktop-suggestions", "");
+
+    let style = document.getElementById(SEARCH_SUGGESTION_STYLE_ID);
+    if (!style) {
+      style = document.createElement("style");
+      style.id = SEARCH_SUGGESTION_STYLE_ID;
+      style.textContent = `
+        html[data-ytdesktop-suggestions] #masthead-container,
+        html[data-ytdesktop-suggestions] ytd-masthead {
+          display: block !important;
+          position: fixed !important;
+          inset: 0 auto auto 0 !important;
+          width: 100% !important;
+          height: 56px !important;
+          min-height: 56px !important;
+          max-height: none !important;
+          overflow: visible !important;
+          visibility: hidden !important;
+          pointer-events: none !important;
+          z-index: 2147483645 !important;
+        }
+      `;
+      (document.head || document.documentElement).appendChild(style);
+    }
+
+    const field = findYoutubeSearchInput();
+    if (!field) {
+      if (attempt < 20) {
+        searchSuggestionTimer = window.setTimeout(
+          () => updateYoutubeSearchSuggestions(query, left, width, attempt + 1),
+          100,
+        );
+      } else {
+        closeYoutubeSearchSuggestions();
+      }
+      return;
+    }
+
+    let shouldFocusField = false;
+    if (field !== searchSuggestionInput) {
+      if (searchSuggestionInput) {
+        searchSuggestionInput.blur();
+        restoreInlineProperties(searchSuggestionInput, searchSuggestionInputStyles);
+      }
+      searchSuggestionInput = field;
+      searchSuggestionInputStyles = setInlineProperties(field, {
+        visibility: "visible",
+        opacity: "0",
+        "pointer-events": "none",
+      });
+      shouldFocusField = true;
+    }
+
+    const prototype = field instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value").set.call(field, query);
+    // YouTube checks document.activeElement before opening autocomplete;
+    // dispatching focus events alone does not update it.
+    if (shouldFocusField) field.focus({ preventScroll: true });
+    field.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      composed: true,
+      inputType: "insertText",
+      data: query.slice(-1),
+    }));
+
+    if (document.documentElement) observeYoutubeSearchRoot(document.documentElement);
+    visitSearchRoots(observeYoutubeSearchRoot);
+    positionYoutubeSearchPopups();
+    requestAnimationFrame(positionYoutubeSearchPopups);
+  }
+
+  window.__ytdesktopSearchSuggestions = {
+    update: updateYoutubeSearchSuggestions,
+    close: closeYoutubeSearchSuggestions,
+  };
+
+  function isGuideHeader(header) {
+    let node = header;
+    while (node) {
+      if (node.id === "guide-content") return true;
+      if (node.parentElement) {
+        node = node.parentElement;
+      } else {
+        node = node.getRootNode()?.host || null;
+      }
+    }
+    return false;
+  }
+
+  function removeGuideHeadersIn(node) {
+    const roots = [node];
+    for (let index = 0; index < roots.length; index += 1) {
+      const root = roots[index];
+      if (!root || typeof root.querySelectorAll !== "function") continue;
+      if (root.nodeType === Node.ELEMENT_NODE && root.shadowRoot) roots.push(root.shadowRoot);
+      root.querySelectorAll("*").forEach((element) => {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+      });
+      const headers = [];
+      if (root.nodeType === Node.ELEMENT_NODE && root.id === "header") headers.push(root);
+      headers.push(...root.querySelectorAll("#header"));
+      for (const header of headers) {
+        if (!isGuideHeader(header) || removedGuideHeaders.has(header)) continue;
+        removedGuideHeaders.set(header, { parent: header.parentNode, next: header.nextSibling });
+        header.remove();
+      }
+    }
+  }
+
+  function restoreGuideHeaders() {
+    for (const observer of guideHeaderObservers.values()) observer.disconnect();
+    guideHeaderObservers.clear();
+    for (const [header, position] of removedGuideHeaders) {
+      const { parent, next } = position;
+      if (parent?.isConnected && !parent.querySelector?.("#header")) {
+        parent.insertBefore(header, next?.parentNode === parent ? next : null);
+      }
+    }
+    removedGuideHeaders.clear();
+  }
+
+  function observeGuideRoot(root) {
+    if (guideHeaderObservers.has(root)) return;
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+          removeGuideHeadersIn(node);
+          observeGuideRootsIn(node);
+        }
+      }
+    });
+    observer.observe(root, { childList: true, subtree: true });
+    guideHeaderObservers.set(root, observer);
+  }
+
+  function observeGuideRootsIn(node) {
+    if (node.nodeType === Node.ELEMENT_NODE && node.shadowRoot) observeGuideRoot(node.shadowRoot);
+    node.querySelectorAll("*").forEach((element) => {
+      if (element.shadowRoot) observeGuideRoot(element.shadowRoot);
+    });
+  }
+
+  function watchGuideHeaders() {
+    if (guideHeaderObservers.size || !document.documentElement) return;
+    removeGuideHeadersIn(document);
+    observeGuideRoot(document.documentElement);
+    observeGuideRootsIn(document.documentElement);
+  }
+
+  function setMastheadIntegrated(integrated) {
+    integrated = Boolean(integrated);
+    window.__ytdesktopInitialMastheadIntegrated = integrated;
     let style = document.getElementById(MASTHEAD_STYLE_ID);
     if (!integrated) {
+      closeYoutubeSearchSuggestions();
       if (style) style.remove();
+      restoreGuideHeaders();
     } else if (!style) {
       style = document.createElement("style");
       style.id = MASTHEAD_STYLE_ID;
       style.textContent = `
-        /* Keep the original center region and its dropdown in the site DOM.
-           Preserve the side regions' widths so YouTube lays out its own search. */
-        ytd-masthead #start.ytd-masthead,
-        ytd-masthead #end.ytd-masthead {
-          visibility: hidden !important;
+        #masthead-container, ytd-masthead, #ticker.ytd-masthead, #interstitial.ytd-masthead {
+          display: none !important;
+          height: 0 !important;
+          min-height: 0 !important;
+          max-height: 0 !important;
+          margin: 0 !important;
+          padding: 0 !important;
           pointer-events: none !important;
+          visibility: hidden !important;
+        }
+        #frosted-glass {
+          display: none !important;
+        }
+        :root, html, body, ytd-app {
+          --ytd-masthead-height: 0px !important;
+          --ytd-toolbar-offset: 0px !important;
+        }
+        ytd-page-manager#page-manager {
+          margin-top: 0px !important;
+          padding-top: 0px !important;
+        }
+        #guide.ytd-app, ytd-mini-guide-renderer.ytd-app, #contentContainer.tp-yt-app-drawer {
+          top: 0px !important;
+          padding-top: 0px !important;
         }
       `;
       const parent = document.head || document.documentElement;
       if (parent) parent.appendChild(style);
     }
 
-    if (persist) {
-      try {
-        window.sessionStorage.setItem(MASTHEAD_SETTING_KEY, String(integrated));
-      } catch (_) {
-        // The page-load hook applies the current preference if storage is unavailable.
-      }
-    }
+    if (integrated) watchGuideHeaders();
   }
 
   function applyMastheadIntegration() {
-    let integrated = Boolean(window.__ytdesktopInitialMastheadIntegrated);
-    try {
-      const saved = window.sessionStorage.getItem(MASTHEAD_SETTING_KEY);
-      if (saved === "true" || saved === "false") integrated = saved === "true";
-    } catch (_) {
-      // Fall back to the preference embedded for the first page load.
-    }
-    setMastheadIntegrated(integrated, false);
+    setMastheadIntegrated(window.__ytdesktopInitialMastheadIntegrated);
   }
 
   window.__ytdesktopSetMastheadIntegrated = function (integrated) {
-    setMastheadIntegrated(Boolean(integrated), true);
+    setMastheadIntegrated(integrated);
   };
 
   // The backend embeds the resolved theme in this script, and initialization

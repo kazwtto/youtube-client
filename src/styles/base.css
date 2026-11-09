@@ -13,6 +13,19 @@
 
 button { cursor: pointer !important; }
 
+:root[data-hide-scrollbars="true"],
+:root[data-hide-scrollbars="true"] * {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+:root[data-hide-scrollbars="true"]::-webkit-scrollbar,
+:root[data-hide-scrollbars="true"] *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 :root[data-motion="off"] *,
 :root[data-motion="off"] *::before,
 :root[data-motion="off"] *::after {

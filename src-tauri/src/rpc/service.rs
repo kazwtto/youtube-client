@@ -2,7 +2,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use discord_rich_presence::activity::{Activity, Assets, Button, Timestamps};
+use discord_rich_presence::activity::{
+    Activity, ActivityType, Assets, Button, StatusDisplayType, Timestamps,
+};
 use discord_rich_presence::{DiscordIpc, DiscordIpcClient};
 use tauri::{AppHandle, Emitter};
 
@@ -150,7 +152,7 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
     let mut client: Option<DiscordIpcClient> = None;
     let mut active_app_id: Option<String> = None;
     let mut last_sent_activity: Option<DiscordActivity> = None;
-    let mut last_sent_instant: Option<Instant> = None;
+    let mut last_activity_attempt: Option<Instant> = None;
     let mut last_connect_attempt: Option<Instant> = None;
     let mut pending_command: Option<RpcCommand> = None;
 
@@ -178,7 +180,7 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
                     } else {
                         Duration::from_millis(50)
                     }
-                } else if let Some(last) = last_sent_instant {
+                } else if let Some(last) = last_activity_attempt {
                     let elapsed = last.elapsed();
                     if elapsed < min_interval {
                         min_interval - elapsed
@@ -229,6 +231,7 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
             }
             active_app_id = None;
             last_sent_activity = None;
+            last_activity_attempt = None;
             pending_command = None;
             set_status(&shared, &app, RpcStatus::disabled());
             continue;
@@ -242,6 +245,7 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
             }
             active_app_id = None;
             last_sent_activity = None;
+            last_activity_attempt = None;
             pending_command = None;
             set_status(&shared, &app, RpcStatus::not_configured());
             continue;
@@ -249,9 +253,17 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
 
         // If no activity (video paused with idle_when_paused or empty)
         let Some(activity) = command.activity.clone() else {
-            if let Some(c) = client.as_mut() {
-                let _ = c.clear_activity();
-                let _ = c.recv();
+            let clear_result = client
+                .as_mut()
+                .map(|c| c.clear_activity().and_then(|_| c.recv().map(|_| ())));
+            if let Some(Err(err)) = clear_result {
+                if let Some(mut c) = client.take() {
+                    let _ = c.close();
+                }
+                active_app_id = None;
+                set_status(&shared, &app, RpcStatus::error(err.to_string()));
+                pending_command = None;
+                continue;
             }
             last_sent_activity = None;
             pending_command = None;
@@ -267,6 +279,7 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
             }
             active_app_id = None;
             last_sent_activity = None;
+            last_activity_attempt = None;
         }
 
         // Connect if needed
@@ -298,8 +311,8 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
         }
 
         // Rate limit check
-        if let Some(last_sent) = last_sent_instant {
-            if last_sent.elapsed() < min_interval {
+        if let Some(last_attempt) = last_activity_attempt {
+            if last_attempt.elapsed() < min_interval {
                 // Keep pending_command to be sent after cooldown
                 continue;
             }
@@ -313,6 +326,7 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
 
         // Send activity
         let payload = to_payload(&activity);
+        last_activity_attempt = Some(Instant::now());
         if let Some(c) = client.as_mut() {
             match c.set_activity(payload) {
                 Ok(_) => {
@@ -339,6 +353,7 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
                             let _ = c.close();
                             client = None;
                             active_app_id = None;
+                            last_sent_activity = None;
                             set_status(&shared, &app, RpcStatus::error(err.to_string()));
                             false
                         }
@@ -347,7 +362,6 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
                     if response_ok {
                         set_status(&shared, &app, RpcStatus::connected());
                         last_sent_activity = Some(activity);
-                        last_sent_instant = Some(Instant::now());
                         pending_command = None;
                     }
                 }
@@ -355,6 +369,7 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
                     let _ = c.close();
                     client = None;
                     active_app_id = None;
+                    last_sent_activity = None;
                     set_status(&shared, &app, RpcStatus::error(err.to_string()));
                 }
             }
@@ -365,8 +380,17 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
 /// Converts the domain presence into the payload accepted by Discord.
 fn to_payload(activity: &DiscordActivity) -> Activity<'_> {
     let mut payload = Activity::new()
+        .activity_type(if activity.is_music {
+            ActivityType::Listening
+        } else {
+            ActivityType::Watching
+        })
         .details(activity.details.as_str())
         .state(activity.state.as_str());
+
+    if activity.is_music {
+        payload = payload.status_display_type(StatusDisplayType::Details);
+    }
 
     if activity.start_timestamp.is_some() || activity.end_timestamp.is_some() {
         let mut timestamps = Timestamps::new();

@@ -2,7 +2,7 @@
   color-scheme: dark;
 
   --pip-fg: #f1f1f1;
-  --pip-focus: #3ea6ff;
+  --pip-focus: #ff0033;
 }
 
 html,
@@ -129,7 +129,7 @@ body {
   width: 30px;
   height: 30px;
   border: 3px solid rgba(255, 255, 255, 0.22);
-  border-top-color: #ffffff;
+  border-top-color: var(--pip-focus);
   border-radius: 50%;
   animation: pip-spin 800ms linear infinite;
 }

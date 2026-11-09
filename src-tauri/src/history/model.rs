@@ -10,6 +10,8 @@ pub struct HistoryEntry {
     pub channel: String,
     pub duration_secs: Option<f64>,
     pub thumbnail_path: Option<String>,
+    pub position_secs: Option<f64>,
+    pub watched_secs: Option<f64>,
     pub last_watched_at: i64,
     pub watch_count: i64,
 }
@@ -47,4 +49,10 @@ pub struct WatchEventInput {
     pub thumbnail_url: Option<String>,
     #[serde(default)]
     pub watched_at: Option<i64>,
+    #[serde(default)]
+    pub position_secs: Option<f64>,
+    #[serde(default)]
+    pub watched_secs: Option<f64>,
+    #[serde(default)]
+    pub session_key: Option<String>,
 }

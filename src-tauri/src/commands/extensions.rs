@@ -12,22 +12,37 @@ use crate::window::layout::reload_youtube;
 
 #[tauri::command]
 pub fn extensions_list(state: State<'_, AppState>) -> AppResult<Vec<ExtensionSummary>> {
-    let (disabled, custom_folder) = {
+    let disabled = {
         let settings = state
             .settings
             .read()
             .map_err(|_| AppError::State("settings unavailable".into()))?
             .snapshot();
-        (settings.extensions.disabled, settings.extensions.custom_folder)
+        settings.extensions.disabled
     };
 
-    if let Some(ref folder) = custom_folder {
-        if folder.is_dir() {
-            let _ = state.extensions.sync_folder(folder);
-        }
+    state.extensions.list(&disabled)
+}
+
+#[tauri::command]
+pub async fn extensions_refresh(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<ExtensionSummary>> {
+    let folder = state
+        .settings
+        .read()
+        .map_err(|_| AppError::State("settings unavailable".into()))?
+        .snapshot()
+        .extensions
+        .custom_folder;
+
+    if let Some(folder) = folder.filter(|folder| folder.is_dir()) {
+        let _ = state.extensions.install(&folder);
     }
 
-    state.extensions.list(&disabled)
+    refresh(&window, &state).await?;
+    state.extensions.list(&disabled_set(&state)?)
 }
 
 #[tauri::command]
@@ -57,7 +72,7 @@ pub async fn extensions_install(
         }
     }
 
-    refresh(&window, &state);
+    refresh(&window, &state).await?;
     Ok(summaries)
 }
 
@@ -80,7 +95,7 @@ pub async fn extensions_uninstall(
         }
     }
 
-    refresh(&window, &state);
+    refresh(&window, &state).await?;
     Ok(())
 }
 
@@ -107,7 +122,7 @@ pub async fn extensions_set_enabled(
         store.replace(settings)?;
     }
 
-    refresh(&window, &state);
+    refresh(&window, &state).await?;
 
     let disabled = disabled_set(&state)?;
     state.extensions.list(&disabled)
@@ -115,21 +130,24 @@ pub async fn extensions_set_enabled(
 
 /// Applies the enabled extensions to the WebView2 profile and rebuilds the
 /// YouTube webview when the profile changed.
-fn refresh(window: &tauri::Window, state: &AppState) {
+async fn refresh(window: &tauri::Window, state: &AppState) -> AppResult<()> {
     let disabled = state
         .settings
         .read()
         .map(|store| store.snapshot().extensions.disabled)
         .unwrap_or_default();
 
-    if let Ok(list) = state.extensions.list(&disabled) {
-        if apply_runtime(window, &list) {
-            let visible = state.youtube_visible.load(Ordering::SeqCst);
-            let _ = reload_youtube(window, &state.paths.webview_data_dir, visible);
-        }
-    }
+    let list = state.extensions.list(&disabled)?;
+    let reload_result = if apply_runtime(window, &list) {
+        let visible = state.youtube_visible.load(Ordering::SeqCst);
+        reload_youtube(window, &state.paths.webview_data_dir, visible).await
+    } else {
+        Ok(())
+    };
 
     let _ = window.app_handle().emit(events::EXTENSIONS_CHANGED, ());
+    reload_result?;
+    Ok(())
 }
 
 fn disabled_set(state: &AppState) -> AppResult<BTreeSet<String>> {

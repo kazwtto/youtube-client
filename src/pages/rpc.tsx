@@ -69,7 +69,7 @@ function RpcPage(props: RpcPageProps) {
       setSettings(updated);
       if (editVersion === savedVersion) setDraft(updated.rpc);
       setStatus(await api.rpcStatus());
-      setMessage(t("rpc.saved"));
+      //setMessage(t("rpc.saved"));
       if (messageTimer !== undefined) window.clearTimeout(messageTimer);
       messageTimer = window.setTimeout(() => setMessage(""), 1600);
     } catch (reason) {

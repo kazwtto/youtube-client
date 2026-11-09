@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "youtube",
-  "description": "Allows the scripts injected into the YouTube webview to read the theme and report playback state. Only the two commands the injected scripts need are exposed to the remote origin.",
+  "description": "Allows the injected YouTube scripts to read the theme, report playback and account state, resume history progress, and remember the last page.",
   "webviews": ["yt"],
   "local": false,
   "remote": {
@@ -11,5 +11,15 @@
       "https://*.youtube.com"
     ]
   },
-  "permissions": ["allow-theme-get", "allow-player-snapshot", "allow-auth-snapshot", "allow-native-pip-return", "allow-youtube-surface-painted"]
+  "permissions": [
+    "allow-theme-get",
+    "allow-player-snapshot",
+    "allow-auth-snapshot",
+    "allow-history-resume-position",
+    "allow-remember-youtube-page",
+    "allow-youtube-titlebar-icons-snapshot",
+    "allow-set-native-pip-active",
+    "allow-native-pip-return",
+    "allow-youtube-surface-painted"
+  ]
 }

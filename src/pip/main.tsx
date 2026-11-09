@@ -8,6 +8,7 @@ import { render } from "solid-js/web";
 
 import { Icon } from "../components/icons";
 import { initI18n, onLanguageChange, t } from "../i18n";
+import type { ResolvedTheme } from "../lib/api";
 import { initTheme } from "../theme/provider";
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{6,32}$/;
@@ -32,6 +33,8 @@ function PipWindow() {
   let frame!: HTMLIFrameElement;
   let revealTimer: number | undefined;
   let unlisten: UnlistenFn | undefined;
+  let unlistenTheme: UnlistenFn | undefined;
+  let accent = "#ff0033";
   let disposed = false;
 
   const appWindow = getCurrentWindow();
@@ -58,6 +61,12 @@ function PipWindow() {
     setVideoId(id);
     setSource(`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&playsinline=1${offset}`);
     revealSoon();
+  };
+  const applyAccent = (value: string): void => {
+    if (!/^#[\da-f]{6}$/i.test(value)) return;
+    accent = value;
+    document.documentElement.style.setProperty("--pip-focus", accent);
+    frame?.contentWindow?.postMessage({ source: FRAME_SOURCE, action: "theme", accent }, "https://www.youtube-nocookie.com");
   };
 
   const resize = (event: PointerEvent, direction: ResizeDirection): void => {
@@ -100,6 +109,7 @@ function PipWindow() {
     const updateTitle = (): void => { document.title = t("pip.windowTitle"); };
     const stopLanguage = onLanguageChange(updateTitle);
     updateTitle();
+    applyAccent(getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim() || accent);
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") close();
     };
@@ -114,6 +124,10 @@ function PipWindow() {
     }).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;
+    }).catch(() => undefined);
+    void listen<ResolvedTheme>("theme://changed", (event) => applyAccent(event.payload.accent)).then((stop) => {
+      if (disposed) stop();
+      else unlistenTheme = stop;
     }).catch(() => undefined);
     void invoke<PlayerSnapshot | null>("pip_current")
       .then((snapshot) => {
@@ -133,6 +147,7 @@ function PipWindow() {
   onCleanup(() => {
     disposed = true;
     unlisten?.();
+    unlistenTheme?.();
     if (revealTimer !== undefined) window.clearTimeout(revealTimer);
   });
 
@@ -146,7 +161,10 @@ function PipWindow() {
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowfullscreen
             title={t("titlebar.pip")}
-            onLoad={markReady}
+            onLoad={() => {
+              markReady();
+              applyAccent(accent);
+            }}
             ref={frame}
           />
           <div class="pip__loading" aria-label={t("youtube.loading")}>

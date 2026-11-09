@@ -11,6 +11,7 @@ import discordSvg from "../assets/icons/launcher/discord.svg?raw";
 import extensionsSvg from "../assets/icons/launcher/extensions.svg?raw";
 import folderSvg from "../assets/icons/launcher/folder.svg?raw";
 import forwardSvg from "../assets/icons/launcher/forward.svg?raw";
+import githubSvg from "../assets/icons/launcher/github.svg?raw";
 import gridSvg from "../assets/icons/launcher/grid.svg?raw";
 import historySvg from "../assets/icons/launcher/history.svg?raw";
 import homeSvg from "../assets/icons/launcher/home.svg?raw";
@@ -66,6 +67,7 @@ export type IconName =
   | "trash"
   | "plus"
   | "folder"
+  | "github"
   | "search"
   | "clock"
   | "play"
@@ -95,6 +97,7 @@ export type YoutubeIconName =
 export interface IconProps {
   name: IconName | YoutubeIconName;
   source?: "launcher" | "youtube";
+  rawSvg?: string;
   size?: number;
   class?: string;
   style?: Partial<CSSStyleDeclaration>;
@@ -120,6 +123,7 @@ const LAUNCHER_ICONS: Record<IconName, string> = {
   trash: trashSvg,
   plus: plusSvg,
   folder: folderSvg,
+  github: githubSvg,
   search: searchSvg,
   clock: clockSvg,
   play: playSvg,
@@ -149,28 +153,57 @@ const YOUTUBE_ICONS: Record<YoutubeIconName, string> = {
 };
 
 const parsedIcons = new Map<string, SVGSVGElement>();
+const parsedYoutubeIcons = new Map<string, SVGSVGElement>();
+const safeSvgTags = new Set(["svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "ellipse", "defs", "clipPath", "mask", "linearGradient", "radialGradient", "stop"]);
+const safeSvgAttributes = new Set(["xmlns", "viewBox", "width", "height", "d", "fill", "fill-rule", "clip-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "opacity", "transform", "cx", "cy", "r", "rx", "ry", "x", "y", "x1", "x2", "y1", "y2", "points", "offset", "stop-color", "stop-opacity", "gradientUnits", "gradientTransform", "maskUnits", "maskContentUnits", "id"]);
+const svgNamespace = "http://www.w3.org/2000/svg";
+
+function parseYoutubeSvg(source: string): SVGSVGElement | undefined {
+  const parsed = new DOMParser().parseFromString(source, "image/svg+xml").documentElement;
+  if (parsed.localName !== "svg") return;
+
+  const copy = (node: Element): Element | undefined => {
+    if (!safeSvgTags.has(node.localName)) return;
+    const clone = document.createElementNS(svgNamespace, node.localName);
+    for (const attribute of Array.from(node.attributes)) {
+      if (safeSvgAttributes.has(attribute.name)) clone.setAttribute(attribute.name, attribute.value);
+    }
+    for (const child of Array.from(node.children)) {
+      const safeChild = copy(child);
+      if (safeChild) clone.appendChild(safeChild);
+    }
+    return clone;
+  };
+
+  return copy(parsed) as SVGSVGElement | undefined;
+}
 
 export function Icon(props: IconProps): JSX.Element {
   const launcherIcon = LAUNCHER_ICONS[props.name as IconName];
   const youtubeIcon = YOUTUBE_ICONS[props.name as YoutubeIconName];
-  const raw = props.source === "youtube"
+  const raw = props.rawSvg ?? (props.source === "youtube"
     ? youtubeIcon
     : props.source === "launcher"
       ? launcherIcon
-      : launcherIcon ?? youtubeIcon;
-  let template = parsedIcons.get(raw);
+      : launcherIcon ?? youtubeIcon);
+  let template = props.rawSvg ? parsedYoutubeIcons.get(raw) : parsedIcons.get(raw);
 
   if (!template) {
-    const parsed = new DOMParser().parseFromString(raw, "image/svg+xml");
-    template = parsed.documentElement as unknown as SVGSVGElement;
-    parsedIcons.set(raw, template);
+    if (props.rawSvg) {
+      template = parseYoutubeSvg(raw) ?? new DOMParser().parseFromString(youtubeIcon, "image/svg+xml").documentElement as unknown as SVGSVGElement;
+      parsedYoutubeIcons.set(raw, template);
+    } else {
+      const parsed = new DOMParser().parseFromString(raw, "image/svg+xml");
+      template = parsed.documentElement as unknown as SVGSVGElement;
+      parsedIcons.set(raw, template);
+    }
   }
 
   const svg = template.cloneNode(true) as SVGSVGElement;
   const size = props.size ?? 16;
   svg.setAttribute("width", String(size));
   svg.setAttribute("height", String(size));
-  const isLauncher = props.source === "launcher" || (props.source !== "youtube" && props.name in LAUNCHER_ICONS);
+  const isLauncher = !props.rawSvg && (props.source === "launcher" || (props.source !== "youtube" && props.name in LAUNCHER_ICONS));
   const className = props.class ?? (isLauncher ? "icon" : undefined);
   if (className) svg.setAttribute("class", className);
   if (props.style) Object.assign(svg.style, props.style);

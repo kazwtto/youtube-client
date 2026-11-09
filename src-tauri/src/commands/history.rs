@@ -13,6 +13,25 @@ pub async fn history_list(
 }
 
 #[tauri::command]
+pub async fn history_resume_position(
+    state: State<'_, AppState>,
+    video_id: String,
+) -> AppResult<Option<f64>> {
+    let valid = !video_id.is_empty()
+        && video_id.len() <= 32
+        && video_id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        });
+    if !valid {
+        return Err(crate::core::error::AppError::Validation(format!(
+            "invalid video id: {video_id}"
+        )));
+    }
+
+    state.history.resume_position(&video_id).await
+}
+
+#[tauri::command]
 pub async fn history_clear(state: State<'_, AppState>) -> AppResult<()> {
     state.history.clear().await?;
 

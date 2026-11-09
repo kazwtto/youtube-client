@@ -9,6 +9,7 @@ import { api, type HistoryEntry } from "../lib/api";
 
 type DateFilter = "all" | "today" | "yesterday" | "week";
 type ViewMode = "list" | "grid";
+const HISTORY_PAGE_SIZE = 300;
 
 function readViewMode(): ViewMode {
   try {
@@ -80,6 +81,15 @@ function factLine(entry: HistoryEntry): string {
   return [entry.channel, views, watched].filter(Boolean).join(" · ");
 }
 
+function playbackPosition(entry: HistoryEntry): string {
+  const watched = formatDuration(entry.watchedSecs);
+  const position = formatDuration(entry.positionSecs);
+  const duration = formatDuration(entry.durationSecs);
+  return watched && position && duration
+    ? t("history.playbackProgress", { watched, position, duration })
+    : "";
+}
+
 function filteredEntries(entries: readonly HistoryEntry[], filter: DateFilter): HistoryEntry[] {
   const today = dayStart(Date.now());
   const yesterday = today - 86_400_000;
@@ -106,6 +116,9 @@ function HistoryCard(props: HistoryCardProps) {
   const [thumbnail, setThumbnail] = createSignal(thumbnailFor(props.entry));
   const menuId = createUniqueId();
   const title = (): string => `${props.entry.title} — ${t("history.play")}`;
+  const progress = (): number => props.entry.positionSecs && props.entry.durationSecs
+    ? Math.min(100, Math.max(0, props.entry.positionSecs / props.entry.durationSecs * 100))
+    : 0;
 
   return (
     <article class="history-item" classList={{ "history-item--enter": props.newlyVisible().has(props.entry.id) }}>
@@ -128,11 +141,19 @@ function HistoryCard(props: HistoryCardProps) {
           <Show when={formatDuration(props.entry.durationSecs)}>
             {(duration) => <span class="history-item__duration">{duration()}</span>}
           </Show>
+          <Show when={progress() > 0}>
+            <span class="history-item__progress" aria-hidden="true">
+              <span style={{ width: `${progress()}%` }} />
+            </span>
+          </Show>
           <span class="history-item__scrim" aria-hidden="true"><span><Icon name="play" size={22} /></span></span>
         </span>
         <span class="history-item__body">
           <span class="history-item__title" role="heading" aria-level={3}>{props.entry.title}</span>
           <span class="history-item__meta">{factLine(props.entry)}</span>
+          <Show when={playbackPosition(props.entry)}>
+            {(label) => <span class="history-item__progress-label">{label()}</span>}
+          </Show>
         </span>
       </button>
       <div class="history-item__menu">
@@ -173,6 +194,8 @@ function HistoryPage(props: { host: HTMLElement }) {
   const [filter, setFilter] = createSignal<DateFilter>("all");
   const [view, setView] = createSignal<ViewMode>(readViewMode());
   const [status, setStatus] = createSignal("");
+  const [hasMore, setHasMore] = createSignal(false);
+  const [loadingMore, setLoadingMore] = createSignal(false);
   const [toast, setToast] = createSignal("");
   const [openMenu, setOpenMenu] = createSignal<string | null>(null);
   const [newlyVisible, setNewlyVisible] = createSignal(new Set<string>());
@@ -192,6 +215,7 @@ function HistoryPage(props: { host: HTMLElement }) {
   let toastTimer: number | undefined;
   let entryAnimationTimer: number | undefined;
   let request = 0;
+  let loadedCount = 0;
 
   const markNewEntries = (ids: Set<string>): void => {
     setNewlyVisible(ids);
@@ -227,16 +251,42 @@ function HistoryPage(props: { host: HTMLElement }) {
 
   const load = async (): Promise<void> => {
     const currentRequest = ++request;
+    setHasMore(false);
+    setLoadingMore(false);
     const previousIds = new Set(filtered().map((entry) => entry.id));
     const search = query().trim();
     try {
-      const next = await api.historyList({ search, limit: 300, offset: 0 });
+      const next = await api.historyList({ search, limit: HISTORY_PAGE_SIZE, offset: 0 });
       if (currentRequest !== request) return;
       setEntries(reconcile(next, { key: "id" }));
+      loadedCount = next.length;
+      setHasMore(next.length === HISTORY_PAGE_SIZE);
       const visible = filteredEntries(next, filter());
       markNewEntries(new Set(visible.filter((entry) => !previousIds.has(entry.id)).map((entry) => entry.id)));
     } catch (error) {
       if (currentRequest === request) setStatus(t("history.loadError", { error: String(error) }));
+    }
+  };
+
+  const loadMore = async (): Promise<void> => {
+    if (loadingMore() || !hasMore()) return;
+    const search = query().trim();
+    const currentRequest = ++request;
+    setLoadingMore(true);
+    setStatus("");
+    try {
+      const next = await api.historyList({ search, limit: HISTORY_PAGE_SIZE, offset: loadedCount });
+      if (currentRequest !== request || search !== query().trim()) return;
+      const previousIds = new Set(entries.map((entry) => entry.id));
+      setEntries(reconcile([...entries, ...next], { key: "id" }));
+      loadedCount += next.length;
+      setHasMore(next.length === HISTORY_PAGE_SIZE);
+      const visible = filteredEntries([...entries, ...next], filter());
+      markNewEntries(new Set(visible.filter((entry) => !previousIds.has(entry.id)).map((entry) => entry.id)));
+    } catch (error) {
+      if (currentRequest === request) setStatus(t("history.loadError", { error: String(error) }));
+    } finally {
+      if (currentRequest === request) setLoadingMore(false);
     }
   };
 
@@ -250,6 +300,8 @@ function HistoryPage(props: { host: HTMLElement }) {
 
   const remove = async (id: string): Promise<void> => {
     setOpenMenu(null);
+    const entry = entries.find((item) => item.id === id);
+    if (!window.confirm(t("history.confirmRemove", { title: entry?.title ?? id }))) return;
     try {
       await api.historyDelete(id);
       setStatus(t("history.removed"));
@@ -322,6 +374,7 @@ function HistoryPage(props: { host: HTMLElement }) {
             onInput={(event) => {
               setQuery(event.currentTarget.value);
               setStatus("");
+              setHasMore(false);
               setOpenMenu(null);
               if (searchTimer !== undefined) window.clearTimeout(searchTimer);
               searchTimer = window.setTimeout(() => void load(), 200);
@@ -373,6 +426,13 @@ function HistoryPage(props: { host: HTMLElement }) {
               </section>
             )}
           </For>
+        </Show>
+        <Show when={hasMore()}>
+          <div class="history-load-more">
+            <button type="button" class="yt-button yt-button--tonal" disabled={loadingMore()} onClick={() => void loadMore()}>
+              {loadingMore() ? t("history.loadingMore") : t("history.loadMore")}
+            </button>
+          </div>
         </Show>
       </div>
 

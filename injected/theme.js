@@ -6,9 +6,9 @@
  * YouTube's design tokens, so the theme is visible on the site as well as in
  * the launcher interface.
  *
- * The theme is fetched on every document load (initialization scripts run
- * again after a navigation or reload), and the backend can push an update at
- * any time through `window.__ytdesktopApplyTheme`.
+ * The current theme and integration settings are embedded or read from the
+ * YouTube profile's local cache at document start. The backend can push an
+ * update at any time through `window.__ytdesktopApplyTheme`.
  *
  * Material layering (Mica / Acrylic)
  * ----------------------------------
@@ -39,6 +39,142 @@
 
   const STYLE_ID = "ytdesktop-theme";
   const MOTION_STYLE_ID = "ytdesktop-motion";
+  const DOCUMENT_CONFIG_KEY = "__ytdesktop_document_config_v1";
+  const EARLY_STYLES = new Map();
+
+  function isCssColor(value) {
+    return typeof value === "string" && value.length <= 128 && !/[;{}\r\n]/.test(value) &&
+      window.CSS && typeof window.CSS.supports === "function" && window.CSS.supports("color", value);
+  }
+
+  function normalizeCachedTheme(theme) {
+    if (!theme || typeof theme !== "object" ||
+        !["light", "dark"].includes(theme.effectiveMode) ||
+        !["solid", "mica", "acrylic"].includes(theme.backdrop) ||
+        typeof theme.motion !== "boolean" || typeof theme.hideScrollbars !== "boolean" ||
+        !theme.tokens || typeof theme.tokens !== "object") {
+      return null;
+    }
+
+    const tokens = {};
+    for (const name of [
+      "--color-bg-solid", "--color-bg-elevated", "--color-fg", "--color-fg-muted",
+      "--color-border", "--color-hover", "--color-accent", "--color-accent-fg",
+    ]) {
+      if (isCssColor(theme.tokens[name])) tokens[name] = theme.tokens[name];
+    }
+
+    return {
+      effectiveMode: theme.effectiveMode,
+      backdrop: theme.backdrop,
+      accent: isCssColor(theme.accent) ? theme.accent : "#ff0033",
+      motion: theme.motion,
+      hideScrollbars: theme.hideScrollbars,
+      tokens,
+    };
+  }
+
+  function readDocumentConfig() {
+    try {
+      const value = JSON.parse(window.localStorage.getItem(DOCUMENT_CONFIG_KEY) || "{}");
+      return value && typeof value === "object" ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function persistDocumentConfig(name, value) {
+    try {
+      const config = readDocumentConfig();
+      config.epoch = window.__ytdesktopConfigEpoch;
+      config[name] = value;
+      window.localStorage.setItem(DOCUMENT_CONFIG_KEY, JSON.stringify(config));
+    } catch {
+      // The embedded initialization values remain the fallback when storage is unavailable.
+    }
+  }
+
+  function installEarlyStyle(id, css) {
+    try {
+      let sheet = EARLY_STYLES.get(id);
+      if (!sheet) {
+        sheet = new CSSStyleSheet();
+        sheet.replaceSync(css);
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+        EARLY_STYLES.set(id, sheet);
+      } else {
+        sheet.replaceSync(css);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function removeEarlyStyle(id) {
+    const sheet = EARLY_STYLES.get(id);
+    if (!sheet) return;
+    try {
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((item) => item !== sheet);
+    } catch {
+      // The stylesheet is already detached or the WebView does not support this API.
+    }
+    EARLY_STYLES.delete(id);
+  }
+
+  function ensureDocumentStyle(id, css) {
+    let style = document.getElementById(id);
+    if (!style) {
+      style = document.createElement("style");
+      style.id = id;
+    }
+    style.textContent = css;
+    const parent = document.body || document.head || document.documentElement;
+    if (!parent) {
+      installEarlyStyle(id, css);
+      return null;
+    }
+    if (style.parentElement !== parent || parent.lastElementChild !== style) {
+      parent.appendChild(style);
+    }
+    removeEarlyStyle(id);
+    return style;
+  }
+
+  function ensureThemeStyleOrderObserver() {
+    if (window.__ytdesktopThemeOrderObserver || !document.documentElement) return;
+    const observer = new MutationObserver(function () {
+      if (document.head) observer.observe(document.head, { childList: true });
+      if (document.body) observer.observe(document.body, { childList: true });
+      const parent = document.body || document.head || document.documentElement;
+      let style = document.getElementById(STYLE_ID);
+      if (!style && window.__ytdesktopLastTheme) {
+        ensureDocumentStyle(STYLE_ID, buildCss(window.__ytdesktopLastTheme));
+        style = document.getElementById(STYLE_ID);
+      }
+      if (style && parent && (style.parentElement !== parent || parent.lastElementChild !== style)) {
+        parent.appendChild(style);
+      }
+    });
+    observer.observe(document.documentElement, { childList: true });
+    if (document.head) observer.observe(document.head, { childList: true });
+    if (document.body) observer.observe(document.body, { childList: true });
+    window.__ytdesktopThemeOrderObserver = observer;
+  }
+
+  function removeDocumentStyle(id) {
+    document.getElementById(id)?.remove();
+    removeEarlyStyle(id);
+  }
+
+  const cachedDocumentConfig = readDocumentConfig();
+  const cacheIsCurrent = cachedDocumentConfig.epoch === window.__ytdesktopConfigEpoch;
+  const cachedTheme = cacheIsCurrent ? normalizeCachedTheme(cachedDocumentConfig.theme) : null;
+  if (cachedTheme) window.__ytdesktopInitialTheme = cachedTheme;
+  if (cacheIsCurrent && typeof cachedDocumentConfig.integrateMasthead === "boolean") {
+    window.__ytdesktopInitialMastheadIntegrated = cachedDocumentConfig.integrateMasthead;
+  }
+
   const MOTION_RESET = `
     animation-duration: 0s !important;
     animation-delay: 0s !important;
@@ -47,6 +183,7 @@
     transition-delay: 0s !important;
     scroll-behavior: auto !important;
   `;
+  let lastRememberedPage = "";
 
   /// Opacity of each material layer, applied to the palette's `elevated` tone.
   const ALPHA = {
@@ -60,6 +197,12 @@
     frame: "blur(24px) saturate(1.4)",
     drawer: "blur(30px) saturate(1.25)",
     flyout: "blur(30px) saturate(1.3)",
+  };
+
+  const MICA_BLUR = {
+    frame: "blur(8px) saturate(1.08)",
+    drawer: "blur(14px) saturate(1.12)",
+    flyout: "blur(18px) saturate(1.15)",
   };
 
   const RADIUS = {
@@ -89,6 +232,8 @@
       "#content.ytd-masthead",
     ],
     mastheadBlur: ["#masthead-container"],
+    searchHost: ["ytd-searchbox"],
+    searchField: ["ytd-searchbox #search-form"],
     mastheadGlass: ["#frosted-glass.ytd-app"],
 
     // Search field: the host stays clear, the field is a control.
@@ -143,6 +288,23 @@
       "tp-yt-paper-dialog",
     ],
   };
+
+  const HOVER_TARGETS = [
+    "yt-button-shape",
+    "yt-button-shape button",
+    "yt-icon-button",
+    "yt-icon-button button",
+    "tp-yt-paper-button",
+    "tp-yt-paper-icon-button",
+    "tp-yt-paper-item",
+    "ytd-menu-service-item-renderer",
+    "ytd-guide-entry-renderer",
+    "ytd-guide-collapsible-entry-renderer",
+    "yt-chip-cloud-chip-renderer",
+    "yt-list-item-view-model",
+    "#movie_player .ytp-button",
+    "#movie_player .ytp-menuitem",
+  ];
 
   /* ---------------------------------------------------------------------- *
    * 2. Color and CSS helpers
@@ -236,6 +398,7 @@
     return {
       dark: dark,
       material: material,
+      backdrop: theme && theme.backdrop,
       bg: tokenValue(theme, "--color-bg-solid", dark ? "#0f0f0f" : "#ffffff"),
       elevated: tokenValue(theme, "--color-bg-elevated", dark ? "#212121" : "#f9f9f9"),
       fg: tokenValue(theme, "--color-fg", dark ? "#f1f1f1" : "#0f0f0f"),
@@ -270,6 +433,22 @@
         flyout: palette.elevated,
         control: palette.hover,
         controlHover: controlHover,
+        player: palette.bg,
+      };
+    }
+
+    if (palette.backdrop === "mica") {
+      const control = withAlpha(palette.fg, palette.dark ? 0.1 : 0.08);
+      return {
+        canvas: "transparent",
+        sheet: withAlpha(palette.elevated, palette.dark ? 0.84 : 0.88),
+        raised: withAlpha(palette.elevated, 0.97),
+        brand: withAlpha(palette.elevated, 0.97),
+        drawer: withAlpha(palette.elevated, 0.95),
+        flyout: withAlpha(palette.elevated, 0.97),
+        control: control,
+        controlHover: withAlpha(palette.fg, palette.dark ? 0.2 : 0.16),
+        player: withAlpha(palette.elevated, 0.97),
       };
     }
 
@@ -284,7 +463,12 @@
       flyout: withAlpha(palette.elevated, ALPHA.flyout),
       control: palette.hover,
       controlHover: controlHover,
+      player: withAlpha(palette.elevated, ALPHA.sheet[palette.dark ? "dark" : "light"]),
     };
+  }
+
+  function blurFor(palette) {
+    return palette.backdrop === "mica" ? MICA_BLUR : BLUR;
   }
 
   /* ---------------------------------------------------------------------- *
@@ -302,6 +486,8 @@
       : [palette.border, palette.border, palette.border];
 
     const tokens = {
+      "color-scheme": palette.dark ? "dark" : "light",
+
       // Backgrounds, from the page canvas up to raised panels.
       "--yt-spec-base-background": surfaces.canvas,
       "--yt-spec-general-background-a": surfaces.canvas,
@@ -334,6 +520,7 @@
       "--yt-spec-20-percent-layer": strokes[1],
       "--yt-spec-30-percent-layer": strokes[2],
       "--yt-spec-touch-response": surfaces.control,
+      "--yt-spec-touch-response-inverse": surfaces.controlHover,
     };
 
     if (palette.material) {
@@ -341,13 +528,12 @@
       tokens["--yt-spec-button-chip-background-hover"] = surfaces.controlHover;
       tokens["--yt-spec-additive-background"] = surfaces.control;
       tokens["--yt-spec-outline"] = palette.border;
+      tokens["--ytd-searchbox-background"] = surfaces.control;
+      tokens["--ytd-searchbox-border-color"] = palette.border;
+      tokens["--ytd-searchbox-legacy-button-color"] = surfaces.controlHover;
     }
 
-    // Keep YouTube's original tokens in its search masthead and suggestions.
-    return [
-      `html { color-scheme: ${palette.dark ? "dark" : "light"}; }`,
-      `ytd-page-manager, #guide.ytd-app, ytd-mini-guide-renderer.ytd-app {\n${declare(tokens)}\n}`,
-    ];
+    return [`:root, html, html[dark] {\n${declare(tokens)}\n}`];
   }
 
   /// The document canvas and text selection.
@@ -365,7 +551,7 @@
   /// Layer 0: shell, masthead and navigation sit directly on the window
   /// material. Only named structural components are cleared; buttons, chips,
   /// cards and every other component keep their own fills.
-  function baseLayerCss(palette, surfaces) {
+  function baseLayerCss(palette, surfaces, blur) {
     return [
       rule(scope(SELECTORS.shell), CLEAR),
 
@@ -377,7 +563,11 @@
         scope(SELECTORS.mastheadGlass),
         Object.assign({}, CLEAR, frosted("none")),
       ),
-      rule(scope(SELECTORS.mastheadBlur), frosted(BLUR.frame)),
+      rule(scope(SELECTORS.mastheadBlur), frosted(blur.frame)),
+
+      // The search field is a control and keeps a visible fill.
+      rule(scope(SELECTORS.searchHost), CLEAR),
+      rule(scope(SELECTORS.searchField), { background: surfaces.control }),
 
       // Navigation. The persistent guide and the rail are part of the base
       // layer; the overlay drawer opens on top of content, so it is acrylic.
@@ -390,7 +580,7 @@
             background: surfaces.drawer,
             "box-shadow": `inset -1px 0 0 ${palette.border}`,
           },
-          frosted(BLUR.drawer),
+          frosted(blur.drawer),
         ),
       ),
       rule(scope(SELECTORS.guideInner), CLEAR),
@@ -428,15 +618,15 @@
   }
 
   /// Sticky bars: clear tint, frosted backdrop.
-  function stickyCss() {
+  function stickyCss(blur) {
     return [
       rule(scope(SELECTORS.chipBar), CLEAR),
-      rule(scope(SELECTORS.chipSticky), Object.assign({}, CLEAR, frosted(BLUR.frame))),
+      rule(scope(SELECTORS.chipSticky), Object.assign({}, CLEAR, frosted(blur.frame))),
     ];
   }
 
   /// Transient surfaces: acrylic menus and dialogs, outlined like flyouts.
-  function flyoutCss(palette, surfaces) {
+  function flyoutCss(palette, surfaces, blur) {
     return [
       rule(
         scope(SELECTORS.flyout),
@@ -446,28 +636,62 @@
             outline: `1px solid ${palette.border}`,
             "outline-offset": "-1px",
           },
-          frosted(BLUR.flyout),
+          frosted(blur.flyout),
         ),
       ),
+    ];
+  }
+
+  function interactionCss(surfaces) {
+    const hoverSelectors = HOVER_TARGETS.map(function (selector) {
+      return `html body ${selector}:not([disabled]):not([aria-disabled='true']):not([aria-pressed='true']):hover`;
+    }).join(",\n");
+
+    return [
+      rule("html body #movie_player", {
+        background: surfaces.player,
+        "background-image": "none",
+      }),
+      rule(hoverSelectors, {
+        background: surfaces.controlHover,
+        "background-image": "none",
+      }),
     ];
   }
 
   function buildCss(theme) {
     const palette = readPalette(theme);
     const surfaces = buildSurfaces(palette);
+    const blur = blurFor(palette);
 
     let rules = [].concat(variablesCss(palette, surfaces), canvasCss(palette, surfaces));
 
     if (palette.material) {
       rules = rules.concat(
-        baseLayerCss(palette, surfaces),
+        baseLayerCss(palette, surfaces, blur),
         sheetLayerCss(palette, surfaces),
-        stickyCss(),
-        flyoutCss(palette, surfaces),
+        stickyCss(blur),
+        flyoutCss(palette, surfaces, blur),
+        interactionCss(surfaces),
       );
     }
 
-    return `${rules.join("\n")}\n${motionCss()}`;
+    return `${rules.join("\n")}\n${scrollbarCss(theme)}\n${motionCss()}`;
+  }
+
+  function scrollbarCss(theme) {
+    if (theme.hideScrollbars !== true) return "";
+    return `
+      html, html * {
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+      }
+      html::-webkit-scrollbar, html *::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+      }
+    `;
   }
 
   function motionCss() {
@@ -629,31 +853,28 @@
   }
 
   function apply(theme) {
-    if (!theme || typeof theme !== "object" || !document.documentElement) {
-      return;
-    }
+    if (!theme || typeof theme !== "object") return;
 
     window.__ytdesktopLastTheme = theme;
     window.__ytdesktopThemeMode = theme.effectiveMode === "dark" ? "dark" : "light";
-    const root = document.documentElement;
-    root.dataset.motion = theme.motion === false ? "off" : "on";
+    const css = buildCss(theme);
+    const cached = normalizeCachedTheme(theme);
+    if (cached) persistDocumentConfig("theme", cached);
 
-    let style = document.getElementById(STYLE_ID);
-    if (!style) {
-      style = document.createElement("style");
-      style.id = STYLE_ID;
+    const root = document.documentElement;
+    if (!root) {
+      installEarlyStyle(STYLE_ID, css);
+      return;
     }
-    style.textContent = buildCss(theme);
+
+    root.dataset.motion = theme.motion === false ? "off" : "on";
+    ensureDocumentStyle(STYLE_ID, css);
 
     // YouTube injects its own `!important` background rules for `html[dark]`
     // after ours. A sheet placed before them loses the cascade tie and paints
     // the page canvas opaque, hiding the window material. Keep ours as the
     // last stylesheet in the document so the transparent background wins.
-    const parent = document.body || document.head || document.documentElement;
-    if (parent.lastElementChild !== style) {
-      parent.appendChild(style);
-    }
-
+    ensureThemeStyleOrderObserver();
     ensureObserver();
     ensureMotionSupport();
 
@@ -667,56 +888,6 @@
   }
 
   window.__ytdesktopApplyTheme = apply;
-
-  let pageEntryAnimation;
-  window.__ytdesktopAnimatePageEntry = function () {
-    if (window !== window.top) return;
-    const root = document.documentElement;
-    if (root.dataset.motion === "off" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      return;
-    }
-    const page = document.querySelector("ytd-page-manager");
-    if (!page || pageEntryAnimation?.playState === "running") return;
-
-    root.setAttribute("data-ytdesktop-page-enter", "");
-    // Match the launcher route animation without replacing YouTube's transform.
-    const animation = page.animate(
-      [{ opacity: 0, translate: "0 4px" }, { opacity: 1, translate: "0 0" }],
-      { duration: 160, easing: "ease-out" },
-    );
-    pageEntryAnimation = animation;
-    const clear = () => {
-      if (pageEntryAnimation !== animation) return;
-      root.removeAttribute("data-ytdesktop-page-enter");
-      pageEntryAnimation = undefined;
-    };
-    animation.finished.then(clear, clear);
-  };
-
-  let surfaceGeneration;
-  window.__ytdesktopWaitForSurface = function (generation, animate) {
-    if (window !== window.top || surfaceGeneration === generation) return;
-    surfaceGeneration = generation;
-
-    const wait = () => {
-      if (surfaceGeneration !== generation) return;
-      const pages = document.querySelectorAll("ytd-page-manager > :not([hidden]), main, [role=main]");
-      const hasContent = Array.from(pages).some((page) =>
-        page.firstElementChild && page.getBoundingClientRect().height > 0,
-      );
-      if (!hasContent) {
-        window.setTimeout(wait, 100);
-        return;
-      }
-
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (surfaceGeneration !== generation) return;
-        if (animate) window.__ytdesktopAnimatePageEntry();
-        window.__TAURI_INTERNALS__.invoke("youtube_surface_painted", { generation }).catch(console.error);
-      }));
-    };
-    wait();
-  };
 
   function rememberYoutubePage() {
     if (window !== window.top || !window.__TAURI_INTERNALS__ || !window.__TAURI_INTERNALS__.invoke) return;
@@ -736,38 +907,44 @@
     window.addEventListener("popstate", rememberYoutubePage);
   }
 
-  // Runs from the native page-load hook after every navigation: YouTube
-  // rewrites its head styles during SPA navigation, so the theme sheet is
-  // re-appended as the last stylesheet once the page is live.
-  window.__ytdesktopReapplyTheme = function () {
-    if (window.__ytdesktopLastTheme) {
-      apply(window.__ytdesktopLastTheme);
-    } else {
-      fetchTheme();
-    }
-  };
-
-  if (window === window.top) {
-    let themeReapplyFrame = 0;
-    window.addEventListener("yt-navigate-finish", () => {
-      if (themeReapplyFrame) cancelAnimationFrame(themeReapplyFrame);
-      themeReapplyFrame = requestAnimationFrame(() => {
-        themeReapplyFrame = requestAnimationFrame(() => {
-          themeReapplyFrame = 0;
-          window.__ytdesktopReapplyTheme();
-        });
-      });
-    });
-  }
-
   /* ---------------------------------------------------------------------- *
    * 6. Bootstrap
    * ---------------------------------------------------------------------- */
 
   const MASTHEAD_STYLE_ID = "ytdesktop-masthead-hide";
-  const SEARCH_SUGGESTION_STYLE_ID = "ytdesktop-search-suggestions";
+  const MASTHEAD_CSS = `
+    #masthead-container, ytd-masthead, #ticker.ytd-masthead, #interstitial.ytd-masthead {
+      display: none !important;
+      height: 0 !important;
+      min-height: 0 !important;
+      max-height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      pointer-events: none !important;
+      visibility: hidden !important;
+    }
+    #frosted-glass {
+      display: none !important;
+    }
+    :root, html, body, ytd-app {
+      --ytd-masthead-height: 0px !important;
+      --ytd-toolbar-offset: 0px !important;
+    }
+    ytd-page-manager#page-manager {
+      margin-top: 0px !important;
+      padding-top: 0px !important;
+    }
+    #guide.ytd-app, ytd-mini-guide-renderer.ytd-app, #contentContainer.tp-yt-app-drawer {
+      top: 0px !important;
+      padding-top: 0px !important;
+    }
+  `;
   const removedGuideHeaders = new Map();
   const guideHeaderObservers = new Map();
+  /* Disabled native YouTube suggestion bridge. The titlebar now renders its
+   * restored custom suggestion list; this bridge is retained here as comments.
+   *
+  const SEARCH_SUGGESTION_STYLE_ID = "ytdesktop-search-suggestions";
   const searchSuggestionPopups = new Map();
   const searchSuggestionObservers = new Map();
   const SEARCH_POPUP_SELECTORS = [
@@ -780,11 +957,15 @@
     ".sbsb_a",
   ];
   const SEARCH_INPUT_SELECTORS = [
-    "ytd-searchbox input#search",
-    "ytd-searchbox input[name='search_query']",
-    "yt-searchbox input",
+    ".ytSearchboxComponentSearchForm input.ytSearchboxComponentInput",
     ".ytSearchboxComponentInput",
     ".ytSearchboxComponentInputTextArea",
+    "yt-searchbox input[name='search_query']",
+    "yt-searchbox input[type='search']",
+    "yt-searchbox input[type='text']",
+    "yt-searchbox textarea",
+    "ytd-searchbox input#search",
+    "ytd-searchbox input[name='search_query']",
     "input#searchbox-input",
     "input#search",
     "input[name='search_query']",
@@ -826,7 +1007,8 @@
       if (typeof root.querySelector !== "function") continue;
       for (const selector of SEARCH_INPUT_SELECTORS) {
         const field = root.querySelector(selector);
-        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+        if (field instanceof HTMLTextAreaElement
+          || (field instanceof HTMLInputElement && (field.type === "text" || field.type === "search"))) {
           found = field;
           break;
         }
@@ -870,7 +1052,6 @@
     if (!searchSuggestionLayout) return;
     const [left, width] = searchSuggestionLayout;
     for (const popup of findYoutubeSearchPopups()) {
-      if (!popup.getClientRects().length) continue;
       if (!searchSuggestionPopups.has(popup)) {
         searchSuggestionPopups.set(popup, setInlineProperties(popup, {
           position: "fixed",
@@ -890,7 +1071,15 @@
     }
   }
 
-  function closeYoutubeSearchSuggestions() {
+  let searchSuggestionRequestId = 0;
+
+  function closeYoutubeSearchSuggestions(requestId) {
+    if (Number.isInteger(requestId) && requestId > 0) {
+      if (requestId < searchSuggestionRequestId) return;
+      searchSuggestionRequestId = requestId;
+    } else {
+      searchSuggestionRequestId += 1;
+    }
     window.clearTimeout(searchSuggestionTimer);
     searchSuggestionTimer = 0;
     searchSuggestionLayout = null;
@@ -914,7 +1103,8 @@
     const insidePopup = Array.from(searchSuggestionPopups.keys()).some(
       (popup) => path.includes(popup) || popup.contains(event.target),
     );
-    if (!insidePopup) closeYoutubeSearchSuggestions();
+    const insideInput = searchSuggestionInput && path.includes(searchSuggestionInput);
+    if (!insidePopup && !insideInput) closeYoutubeSearchSuggestions();
   }, true);
   window.addEventListener("yt-navigate-start", closeYoutubeSearchSuggestions);
 
@@ -933,10 +1123,15 @@
     searchSuggestionObservers.set(root, observer);
   }
 
-  function updateYoutubeSearchSuggestions(query, left, width, attempt = 0) {
+  function updateYoutubeSearchSuggestions(query, left, width, requestId = 0, activate = false, attempt = 0) {
+    const request = Number.isInteger(requestId) && requestId > 0
+      ? requestId
+      : searchSuggestionRequestId + 1;
+    if (request < searchSuggestionRequestId) return;
+    searchSuggestionRequestId = request;
     window.clearTimeout(searchSuggestionTimer);
     if (!width || !document.documentElement) {
-      closeYoutubeSearchSuggestions();
+      closeYoutubeSearchSuggestions(request);
       return;
     }
 
@@ -970,7 +1165,7 @@
     if (!field) {
       if (attempt < 20) {
         searchSuggestionTimer = window.setTimeout(
-          () => updateYoutubeSearchSuggestions(query, left, width, attempt + 1),
+          () => updateYoutubeSearchSuggestions(query, left, width, request, activate, attempt + 1),
           100,
         );
       } else {
@@ -994,19 +1189,63 @@
       shouldFocusField = true;
     }
 
-    const prototype = field instanceof HTMLTextAreaElement
-      ? HTMLTextAreaElement.prototype
-      : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(prototype, "value").set.call(field, query);
-    // YouTube checks document.activeElement before opening autocomplete;
-    // dispatching focus events alone does not update it.
-    if (shouldFocusField) field.focus({ preventScroll: true });
-    field.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      composed: true,
-      inputType: "insertText",
-      data: query.slice(-1),
-    }));
+    const previousQuery = field.value;
+    const queryChanged = previousQuery !== query;
+    if (queryChanged) {
+      const prototype = field instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      try {
+        const valueSetter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+        if (!valueSetter) throw new Error("native value setter is missing");
+        valueSetter.call(field, query);
+      } catch (_) {
+        return;
+      }
+    }
+
+    // Forward the same pointer sequence the native search box receives when
+    // clicked. Its own pointerdown handler opens the native suggestion list.
+    if (shouldFocusField || activate) {
+      const bounds = field.getBoundingClientRect();
+      const pointer = {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+        button: 0,
+        buttons: 1,
+        clientX: bounds.left + bounds.width / 2,
+        clientY: bounds.top + bounds.height / 2,
+      };
+      field.dispatchEvent(new PointerEvent("pointerdown", {
+        ...pointer,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+      }));
+      field.dispatchEvent(new MouseEvent("mousedown", pointer));
+      field.focus({ preventScroll: true });
+      field.dispatchEvent(new PointerEvent("pointerup", {
+        ...pointer,
+        buttons: 0,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+      }));
+      field.dispatchEvent(new MouseEvent("mouseup", { ...pointer, buttons: 0 }));
+      field.click();
+    }
+    if (queryChanged) {
+      const appendedText = query.startsWith(previousQuery) && query.length > previousQuery.length;
+      const deletedText = previousQuery.startsWith(query) && query.length < previousQuery.length;
+      field.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        inputType: appendedText ? "insertText" : deletedText ? "deleteContentBackward" : "insertReplacementText",
+        data: appendedText ? query.slice(previousQuery.length) : query || null,
+      }));
+    }
 
     if (document.documentElement) observeYoutubeSearchRoot(document.documentElement);
     visitSearchRoots(observeYoutubeSearchRoot);
@@ -1018,6 +1257,7 @@
     update: updateYoutubeSearchSuggestions,
     close: closeYoutubeSearchSuggestions,
   };
+  */
 
   function isGuideHeader(header) {
     let node = header;
@@ -1096,43 +1336,15 @@
   function setMastheadIntegrated(integrated) {
     integrated = Boolean(integrated);
     window.__ytdesktopInitialMastheadIntegrated = integrated;
-    let style = document.getElementById(MASTHEAD_STYLE_ID);
+    persistDocumentConfig("integrateMasthead", integrated);
     if (!integrated) {
-      closeYoutubeSearchSuggestions();
-      if (style) style.remove();
+      // closeYoutubeSearchSuggestions(); // Disabled with the native suggestion bridge above.
+      removeDocumentStyle(MASTHEAD_STYLE_ID);
       restoreGuideHeaders();
-    } else if (!style) {
-      style = document.createElement("style");
-      style.id = MASTHEAD_STYLE_ID;
-      style.textContent = `
-        #masthead-container, ytd-masthead, #ticker.ytd-masthead, #interstitial.ytd-masthead {
-          display: none !important;
-          height: 0 !important;
-          min-height: 0 !important;
-          max-height: 0 !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          pointer-events: none !important;
-          visibility: hidden !important;
-        }
-        #frosted-glass {
-          display: none !important;
-        }
-        :root, html, body, ytd-app {
-          --ytd-masthead-height: 0px !important;
-          --ytd-toolbar-offset: 0px !important;
-        }
-        ytd-page-manager#page-manager {
-          margin-top: 0px !important;
-          padding-top: 0px !important;
-        }
-        #guide.ytd-app, ytd-mini-guide-renderer.ytd-app, #contentContainer.tp-yt-app-drawer {
-          top: 0px !important;
-          padding-top: 0px !important;
-        }
-      `;
-      const parent = document.head || document.documentElement;
-      if (parent) parent.appendChild(style);
+    } else if (document.documentElement) {
+      ensureDocumentStyle(MASTHEAD_STYLE_ID, MASTHEAD_CSS);
+    } else {
+      installEarlyStyle(MASTHEAD_STYLE_ID, MASTHEAD_CSS);
     }
 
     if (integrated) watchGuideHeaders();
@@ -1152,20 +1364,17 @@
   (function applyInitialTheme() {
     applyMastheadIntegration();
     const initial = window.__ytdesktopInitialTheme;
-    if (!initial) {
-      return;
-    }
+    // WebView2 can run this script before the parser creates <html>. Apply
+    // immediately anyway: apply() installs an adopted stylesheet on Document,
+    // so YouTube's first parsed frame already receives the app theme.
+    if (initial) apply(initial);
 
-    if (document.documentElement) {
-      apply(initial);
-    } else {
+    if (!document.documentElement) {
       document.addEventListener(
         "readystatechange",
         function () {
           applyMastheadIntegration();
-          if (document.documentElement) {
-            apply(initial);
-          }
+          if (initial && document.documentElement) apply(initial);
         },
         { once: true },
       );
@@ -1190,7 +1399,7 @@
     return true;
   }
 
-  if (!fetchTheme()) {
+  if (!window.__ytdesktopInitialTheme && !fetchTheme()) {
     let attempts = 0;
     const timer = window.setInterval(function () {
       attempts += 1;

@@ -3,6 +3,7 @@ import { render } from "solid-js/web";
 
 import { LANGUAGES, normalizeLanguage, setLanguage, t, type TranslationKey } from "../i18n";
 import { api, type AppSettings, type ThemeMode, type ThemeSummary, type TitlebarStyle } from "../lib/api";
+import { Icon } from "../components/icons";
 import { Select, type SelectOption } from "../components/select";
 import { SettingRow, SwitchSetting } from "../components/setting-row";
 
@@ -28,6 +29,7 @@ function SettingsPage(props: SettingsPageProps) {
   const [horizontalTabs, setHorizontalTabs] = createSignal(window.matchMedia("(max-width: 900px)").matches);
   let form!: HTMLFormElement;
   let timer: number | undefined;
+  const panelAnimationTimers = new Map<SettingsTab, number>();
   let saving = false;
   let pending = false;
   let editVersion = 0;
@@ -56,6 +58,7 @@ function SettingsPage(props: SettingsPageProps) {
         backdrop: value("backdrop") as AppSettings["theme"]["backdrop"],
         radius: Math.min(24, Math.max(2, Number(value("radius")) || 8)),
         motion: checked("motion"),
+        hideScrollbars: checked("hideScrollbars"),
       },
       history: {
         ...base.history,
@@ -74,6 +77,8 @@ function SettingsPage(props: SettingsPageProps) {
         hardwareAcceleration: checked("hardwareAcceleration"),
         titlebarStyle: value("titlebarStyle") as TitlebarStyle,
         integrateMasthead: checked("integrateMasthead"),
+        openLastPage: checked("openLastPage"),
+        minimizeToTray: checked("minimizeToTray"),
         pipOnMinimize: checked("pipOnMinimize"),
         pipOnBlur: checked("pipOnBlur"),
       },
@@ -121,8 +126,29 @@ function SettingsPage(props: SettingsPageProps) {
   };
 
   const activateTab = (tab: SettingsTab, focus = false): void => {
+    if (activeTab() === tab) {
+      if (focus) document.getElementById(`settings-tab-${tab}`)?.focus();
+      return;
+    }
     setActiveTab(tab);
+    const panel = document.getElementById(`settings-panel-${tab}`);
+    if (panel) {
+      const previousTimer = panelAnimationTimers.get(tab);
+      if (previousTimer !== undefined) window.clearTimeout(previousTimer);
+      panel.classList.remove("settings-panel--enter");
+      void panel.offsetWidth;
+      panel.classList.add("settings-panel--enter");
+      const animationTimer = window.setTimeout(() => {
+        panel.classList.remove("settings-panel--enter");
+        panelAnimationTimers.delete(tab);
+      }, 180);
+      panelAnimationTimers.set(tab, animationTimer);
+    }
     if (focus) document.getElementById(`settings-tab-${tab}`)?.focus();
+  };
+
+  const requestBrowserImport = (): void => {
+    document.dispatchEvent(new CustomEvent("app:browser-import"));
   };
 
   const handleTabKeyDown: JSX.EventHandlerUnion<HTMLElement, KeyboardEvent> = (event) => {
@@ -153,6 +179,8 @@ function SettingsPage(props: SettingsPageProps) {
 
   onCleanup(() => {
     if (timer !== undefined) window.clearTimeout(timer);
+    for (const animationTimer of panelAnimationTimers.values()) window.clearTimeout(animationTimer);
+    panelAnimationTimers.clear();
   });
 
   onMount(() => {
@@ -174,36 +202,44 @@ function SettingsPage(props: SettingsPageProps) {
       </header>
 
       <div class="settings-layout">
-        <nav class="settings-nav" role="tablist" aria-orientation={horizontalTabs() ? "horizontal" : "vertical"} aria-label={t("settings.title")} onKeyDown={handleTabKeyDown}>
-          <For each={SETTINGS_TABS}>
-            {(tab) => {
-              const key: TranslationKey = tab === "pip"
-                ? "settings.pipTitle"
-                : tab === "app"
-                  ? "settings.application"
-                  : tab === "history"
-                    ? "settings.historyTitle"
-                    : "settings.appearance";
-              const label = (): string => t(key);
-              return (
-                <button
-                  type="button"
-                  id={`settings-tab-${tab}`}
-                  class="settings-nav__item"
-                  classList={{ "is-active": activeTab() === tab }}
-                  role="tab"
-                  data-tab={tab}
-                  aria-controls={`settings-panel-${tab}`}
-                  aria-selected={activeTab() === tab}
-                  tabIndex={activeTab() === tab ? 0 : -1}
-                  onClick={() => activateTab(tab)}
-                >
-                  {label()}
-                </button>
-              );
-            }}
-          </For>
-        </nav>
+        <aside class="settings-sidebar">
+          <nav class="settings-nav" role="tablist" aria-orientation={horizontalTabs() ? "horizontal" : "vertical"} aria-label={t("settings.title")} onKeyDown={handleTabKeyDown}>
+            <For each={SETTINGS_TABS}>
+              {(tab) => {
+                const key: TranslationKey = tab === "pip"
+                  ? "settings.pipTitle"
+                  : tab === "app"
+                    ? "settings.application"
+                    : tab === "history"
+                      ? "settings.historyTitle"
+                      : "settings.appearance";
+                return (
+                  <button
+                    type="button"
+                    id={`settings-tab-${tab}`}
+                    class="settings-nav__item"
+                    classList={{ "is-active": activeTab() === tab }}
+                    role="tab"
+                    data-tab={tab}
+                    aria-controls={`settings-panel-${tab}`}
+                    aria-selected={activeTab() === tab}
+                    tabIndex={activeTab() === tab ? 0 : -1}
+                    onClick={() => activateTab(tab)}
+                  >
+                    {t(key)}
+                  </button>
+                );
+              }}
+            </For>
+          </nav>
+          <div class="settings-sidebar__meta">
+            <span class="settings-sidebar__version" style={{ display: 'none' }}>YouTube Client {props.version}</span>
+            <button type="button" class="settings-sidebar__repository" title={t("settings.githubRepository")} aria-label={t("settings.githubRepository")} onClick={() => void api.openRepository().catch((error) => console.error(error))}>
+              <Icon name="github" size={16} />
+              <span>YTClient {props.version}</span>
+            </button>
+          </div>
+        </aside>
 
         <form
           class="settings"
@@ -257,13 +293,20 @@ function SettingsPage(props: SettingsPageProps) {
               </span>
             </label>
             <SwitchSetting name="motion" checked={current().theme.motion} label={t("settings.motion")} />
+            <SwitchSetting
+              name="hideScrollbars"
+              checked={current().theme.hideScrollbars}
+              label={t("settings.hideScrollbars")}
+              hint={t("settings.hideScrollbarsHint")}
+            />
             <SettingRow label={t("settings.titlebarStyle")} control={
               <Select name="titlebarStyle" label={() => t("settings.titlebarStyle")} value={() => current().general.titlebarStyle} options={() => [
                 { value: "tabs", label: t("settings.titlebarTabs") },
                 { value: "icons", label: t("settings.titlebarIcons") },
+                { value: "compact", label: t("settings.titlebarCompact") },
               ]} onChange={() => queueSave(0)} />
             } />
-            <SwitchSetting name="integrateMasthead" checked={current().general.integrateMasthead} label={t("settings.integrateMasthead")} hint={t("settings.integrateMastheadHint")} />
+            <SwitchSetting name="integrateMasthead" checked={current().general.integrateMasthead} label={t("settings.integrateMasthead")} hint={t("settings.integrateMastheadHint")} experimental={t("settings.experimental")} />
           </section>
 
           <section id="settings-panel-pip" class="yt-section" role="tabpanel" aria-labelledby="settings-tab-pip" tabIndex={0} hidden={activeTab() !== "pip"}>
@@ -271,7 +314,7 @@ function SettingsPage(props: SettingsPageProps) {
             <SwitchSetting name="pipEnabled" checked={current().pip.enabled} label={t("settings.pipEnabled")} hint={t("settings.pipEnabledHint")} />
             <SettingRow label={t("settings.pipMode")} hint={t("settings.pipModeHint")} control={
               <Select name="pipMode" label={() => t("settings.pipMode")} value={() => current().pip.mode} options={() => [
-                { value: "custom", label: t("settings.pipModeCustom") },
+                { value: "custom", label: t("settings.pipModeCustom"), experimental: t("settings.experimental") },
                 { value: "native", label: t("settings.pipModeNative") },
               ]} onChange={() => queueSave(0)} />
             } />
@@ -294,12 +337,18 @@ function SettingsPage(props: SettingsPageProps) {
           <section id="settings-panel-app" class="yt-section" role="tabpanel" aria-labelledby="settings-tab-app" tabIndex={0} hidden={activeTab() !== "app"}>
             <p class="yt-section__hint">{t("settings.hardwareAccelerationHint")}</p>
             <SwitchSetting name="hardwareAcceleration" checked={current().general.hardwareAcceleration} label={t("settings.hardwareAcceleration")} />
-            <div class="yt-setting">
-              <span class="yt-setting__text">
-                <span class="yt-setting__label">{t("settings.version")}</span>
-                <span class="yt-setting__hint">YT Desktop {props.version}</span>
-              </span>
-            </div>
+            <SwitchSetting
+              name="openLastPage"
+              checked={current().general.openLastPage}
+              label={t("settings.openLastPage")}
+              hint={t("settings.openLastPageHint")}
+            />
+            <SwitchSetting name="minimizeToTray" checked={current().general.minimizeToTray} label={t("settings.minimizeToTray")} hint={t("settings.minimizeToTrayHint")} />
+            <SettingRow label={t("settings.browserDataTitle")} hint={t("settings.browserDataHint")} control={
+              <button type="button" class="button button--primary" onClick={requestBrowserImport}>
+                {t("settings.importBrowserData")}
+              </button>
+            } />
           </section>
 
         </form>

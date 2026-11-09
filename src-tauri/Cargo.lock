@@ -4934,7 +4934,9 @@ dependencies = [
  "tokio",
  "webview2-com",
  "window-vibrancy",
+ "windows",
  "windows-core",
+ "winreg",
 ]
 
 [[package]]

@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::player::model::PlayerSnapshot;
 
-/// Discord application that owns the Rich Presence artwork and assets. It is
-/// fixed here on purpose: the launcher ships configured, so users never have to
-/// paste identifiers.
-pub const DEFAULT_APP_ID: &str = "1566431228842876968";
+/// Discord applications used by the YouTubeDiscordPresence integration.
+/// Keeping both identifiers fixed also keeps their registered assets available.
+pub const DEFAULT_APP_ID: &str = "847682519214456862";
+pub const DEFAULT_MUSIC_APP_ID: &str = "1064295774592180254";
 
 /// Discord Rich Presence settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,7 +31,7 @@ impl Default for RpcSettings {
         Self {
             enabled: false,
             app_id: DEFAULT_APP_ID.to_string(),
-            music_app_id: String::new(),
+            music_app_id: DEFAULT_MUSIC_APP_ID.to_string(),
             show_video_button: true,
             show_channel_button: true,
             show_timestamps: true,
@@ -104,6 +104,7 @@ pub struct ActivityButton {
 pub struct DiscordActivity {
     pub details: String,
     pub state: String,
+    pub is_music: bool,
     pub start_timestamp: Option<i64>,
     pub end_timestamp: Option<i64>,
     pub large_image_key: Option<String>,
@@ -154,39 +155,62 @@ pub fn build_activity(
     }
     let state = truncate(&state_str, 128);
 
-    // Discord Rich Presence expects timestamps in SECONDS (Unix epoch in seconds).
+    // Discord Rich Presence timestamps are Unix epoch milliseconds.
     let (start_timestamp, end_timestamp) = if settings.show_timestamps && !snapshot.is_livestream {
-        let position_sec = snapshot.position_secs.unwrap_or(0.0).max(0.0) as i64;
-        let now = now_secs();
-        let start = now.saturating_sub(position_sec);
+        let position_ms = seconds_to_millis(snapshot.position_secs.unwrap_or(0.0));
+        let start = now_millis().saturating_sub(position_ms);
         let end = snapshot
             .duration_secs
-            .filter(|duration| *duration > 0.0)
-            .map(|duration| start + duration as i64);
+            .filter(|duration| duration.is_finite() && *duration > 0.0)
+            .map(|duration| start.saturating_add(seconds_to_millis(duration)));
         (Some(start), end)
     } else if settings.show_timestamps && snapshot.is_livestream {
-        (Some(now_secs()), None)
+        (Some(now_millis()), None)
     } else {
         (None, None)
     };
 
-    let large_image_key = snapshot
-        .artwork_url
-        .clone()
-        .filter(|value| !value.is_empty());
+    let fallback_image = if snapshot.is_music() {
+        "youtube-music"
+    } else if snapshot.is_livestream {
+        "youtubelive1"
+    } else {
+        "youtube3"
+    };
+    let large_image_key = Some(
+        snapshot
+            .artwork_url
+            .clone()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| fallback_image.to_string()),
+    );
     let large_image_text = Some(details.clone());
 
-    // Do NOT send unverified keys like "play"/"pause" to small_image_key.
-    // If an asset key does not exist on Discord Developer App, Discord rejects the entire activity.
-    let small_image_key = None;
-    let small_image_text = None;
+    // Avoid showing a playing badge when the user keeps a paused activity.
+    let (small_image_key, small_image_text) = if playing {
+        (
+            Some("playing-icon-6".to_string()),
+            Some("YouTubeDiscordPresence on GitHub".to_string()),
+        )
+    } else {
+        (None, None)
+    };
 
     let mut buttons = Vec::new();
     if settings.show_video_button {
         if let Some(url) = snapshot.url.clone().filter(|value| !value.is_empty()) {
             if url.starts_with("http://") || url.starts_with("https://") {
                 buttons.push(ActivityButton {
-                    label: truncate(labels.watch, 32),
+                    label: truncate(
+                        if snapshot.is_music() {
+                            labels.listen
+                        } else if snapshot.is_livestream {
+                            labels.watch_live
+                        } else {
+                            labels.watch
+                        },
+                        32,
+                    ),
                     url,
                 });
             }
@@ -211,6 +235,7 @@ pub fn build_activity(
     Some(DiscordActivity {
         details,
         state,
+        is_music: snapshot.is_music(),
         start_timestamp,
         end_timestamp,
         large_image_key,
@@ -231,15 +256,6 @@ pub fn app_id_for(settings: &RpcSettings, is_music: bool) -> &str {
     }
 }
 
-pub fn now_secs() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or_default()
-}
-
 pub fn now_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -249,8 +265,18 @@ pub fn now_millis() -> i64 {
         .unwrap_or_default()
 }
 
+fn seconds_to_millis(seconds: f64) -> i64 {
+    if seconds.is_finite() && seconds > 0.0 {
+        (seconds * 1000.0) as i64
+    } else {
+        0
+    }
+}
+
 struct RpcLabels {
     watch: &'static str,
+    watch_live: &'static str,
+    listen: &'static str,
     channel: &'static str,
     by: &'static str,
 }
@@ -259,12 +285,16 @@ fn labels_for(language: &str) -> RpcLabels {
     if language.to_ascii_lowercase().starts_with("pt") {
         RpcLabels {
             watch: "Assistir no YouTube",
+            watch_live: "Assistir à transmissão",
+            listen: "Ouvir junto",
             channel: "Abrir canal",
             by: "por",
         }
     } else {
         RpcLabels {
             watch: "Watch on YouTube",
+            watch_live: "Watch livestream",
+            listen: "Listen Along",
             channel: "Open channel",
             by: "by",
         }
@@ -321,7 +351,8 @@ mod tests {
 
         assert_eq!(activity.details, "A video");
         assert_eq!(activity.state, "by A channel");
-        assert_eq!(activity.small_image_key, None);
+        assert!(!activity.is_music);
+        assert_eq!(activity.small_image_key.as_deref(), Some("playing-icon-6"));
         assert_eq!(activity.large_image_text.as_deref(), Some("A video"));
         assert_eq!(activity.buttons.len(), 2);
         assert_eq!(
@@ -332,8 +363,8 @@ mod tests {
 
         let start = activity.start_timestamp.expect("start");
         let end = activity.end_timestamp.expect("end");
-        assert_eq!(end - start, 90);
-        assert!((now_secs() - 30 - start).abs() < 5);
+        assert_eq!(end - start, 90_000);
+        assert!((now_millis() - 30_000 - start).abs() < 5_000);
     }
 
     #[test]

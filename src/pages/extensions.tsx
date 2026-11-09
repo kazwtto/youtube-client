@@ -71,6 +71,8 @@ function ExtensionsPage(props: ExtensionsPageProps) {
   const [status, setStatus] = createSignal("");
   const [tone, setTone] = createSignal<"idle" | "busy" | "error">("idle");
   const [installing, setInstalling] = createSignal(false);
+  const [refreshing, setRefreshing] = createSignal(false);
+  const [hasLoaded, setHasLoaded] = createSignal(false);
   const [dropActive, setDropActive] = createSignal(false);
   const [pendingIds, setPendingIds] = createSignal(new Set<string>());
   const [loadError, setLoadError] = createSignal("");
@@ -87,15 +89,24 @@ function ExtensionsPage(props: ExtensionsPageProps) {
     if (message && kind !== "busy") snackTimer = window.setTimeout(() => setStatus(""), 5000);
   };
 
-  const refresh = async (): Promise<void> => {
+  const refresh = async (syncSource = false): Promise<void> => {
     const request = ++refreshRequest;
+    setRefreshing(true);
+    if (!hasLoaded()) setLoadError("");
     try {
-      setLoadError("");
-      const latest = await api.extensionsList();
+      const latest = await (syncSource ? api.extensionsRefresh() : api.extensionsList());
       if (request !== refreshRequest) return;
       setExtensions(reconcile(latest, { key: "id" }));
+      setHasLoaded(true);
+      setLoadError("");
     } catch (error) {
-      if (request === refreshRequest) setLoadError(t("extensions.loadError", { error: String(error) }));
+      if (request === refreshRequest) {
+        const message = t("extensions.loadError", { error: String(error) });
+        if (hasLoaded()) notify(message, "error");
+        else setLoadError(message);
+      }
+    } finally {
+      if (request === refreshRequest) setRefreshing(false);
     }
   };
 
@@ -239,13 +250,47 @@ function ExtensionsPage(props: ExtensionsPageProps) {
             <h1>{t("extensions.title")}</h1>
             <p class="page__lead">{t("extensions.lead")}</p>
           </div>
-          <button type="button" class="yt-button yt-button--tonal" disabled={installing()} onClick={() => dialog.showModal()}>
-            <Icon name="plus" size={18} /><span>{t("extensions.add")}</span>
-          </button>
+          <div class="extensions-header-actions">
+            <button
+              type="button"
+              class="yt-icon-button extension-refresh-button"
+              classList={{ "is-refreshing": refreshing() }}
+              title={t("extensions.refresh")}
+              aria-label={t("extensions.refresh")}
+              aria-busy={refreshing()}
+              disabled={refreshing() || installing()}
+              onClick={() => void refresh(true)}
+            >
+              <Icon name="reload" size={18} />
+            </button>
+            <button type="button" class="yt-button yt-button--tonal" disabled={installing()} onClick={() => dialog.showModal()}>
+              <Icon name="plus" size={18} /><span>{t("extensions.add")}</span>
+            </button>
+          </div>
         </header>
 
-        <div class="ext-list">
-          <Show when={!loadError()} fallback={<>{loadError()}</>}>
+        <div class="ext-refresh-progress" role="status" aria-live="polite" hidden={!refreshing()}>
+          <span class="ext-refresh-progress__track" aria-hidden="true"><span /></span>
+          <span>{t("extensions.loading")}</span>
+        </div>
+
+        <div class="ext-list" aria-busy={refreshing()}>
+          <Show when={hasLoaded()} fallback={
+            <Show when={!loadError()} fallback={<p class="ext-load-error" role="alert">{loadError()}</p>}>
+              <div class="ext-skeleton-list" role="status" aria-label={t("extensions.loading")}>
+                <For each={[0, 1]}>{() => (
+                  <div class="ext-skeleton-row" aria-hidden="true">
+                    <span class="ext-skeleton ext-skeleton--icon" />
+                    <span class="ext-skeleton-row__body">
+                      <span class="ext-skeleton-row__head"><span class="ext-skeleton ext-skeleton--title" /><span class="ext-skeleton ext-skeleton--badge" /></span>
+                      <span class="ext-skeleton ext-skeleton--description" />
+                      <span class="ext-skeleton ext-skeleton--chip" />
+                    </span>
+                  </div>
+                )}</For>
+              </div>
+            </Show>
+          }>
             <Show when={extensions.length > 0} fallback={
               <div class="yt-empty yt-empty--compact">
                 <Icon name="extensions" size={22} />

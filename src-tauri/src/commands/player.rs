@@ -16,6 +16,11 @@ pub fn player_snapshot(
     state: State<'_, AppState>,
     snapshot: PlayerSnapshot,
 ) -> AppResult<RpcStatus> {
+    #[cfg(windows)]
+    if snapshot.is_playing {
+        crate::window::audio::refresh_session_icon();
+    }
+
     let _ = window.app_handle().emit(events::PLAYER_UPDATE, &snapshot);
 
     let track_changed = if let Ok(mut last) = state.last_player.lock() {
@@ -83,6 +88,22 @@ fn record_history(
     let thumbnails_dir = state.paths.thumbnails_dir.clone();
 
     tauri::async_runtime::spawn(async move {
+        if !record.is_new_session {
+            let input = WatchEventInput {
+                video_id: record.video_id,
+                title: record.title,
+                channel: record.channel,
+                duration_secs: record.duration_secs,
+                thumbnail_url: None,
+                watched_at: None,
+                position_secs: Some(record.position_secs),
+                watched_secs: Some(record.watched_secs),
+                session_key: Some(record.session_key),
+            };
+            let _ = repository.update_progress(input).await;
+            return;
+        }
+
         let thumbnail_url = if keep_thumbnails {
             if let Some(url) = &record.thumbnail_url {
                 let video_id = &record.video_id;
@@ -116,6 +137,9 @@ fn record_history(
             duration_secs: record.duration_secs,
             thumbnail_url,
             watched_at: None,
+            position_secs: Some(record.position_secs),
+            watched_secs: Some(record.watched_secs),
+            session_key: Some(record.session_key),
         };
 
         let _ = repository.record(input).await;

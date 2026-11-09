@@ -4,7 +4,7 @@ use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::core::error::{AppError, AppResult};
 use crate::core::state::AppState;
-use crate::window::layout::YOUTUBE_WEBVIEW_LABEL;
+use crate::window::layout::{UI_WEBVIEW_LABEL, YOUTUBE_WEBVIEW_LABEL};
 
 #[tauri::command]
 pub fn app_version() -> String {
@@ -27,22 +27,11 @@ pub fn set_webview_visible(
         state.youtube_visible.store(visible, Ordering::SeqCst);
     }
 
-    // Never reveal a page that is still loading: the launcher shows its loading
-    // state and the page-load handler reveals the site when it is ready.
     if visible {
-        if state.youtube_loading.load(Ordering::SeqCst)
-            && !state.youtube_ready.load(Ordering::SeqCst)
-        {
-            webview.hide()?;
-            return Ok(());
-        }
-
         webview.show()?;
     } else {
         webview.hide()?;
     }
-
-    let _ = crate::window::layout::layout_webviews(&window);
 
     Ok(())
 }
@@ -52,9 +41,9 @@ pub fn set_webview_visible(
 pub fn yt_play_video(window: Window, video_id: String) -> AppResult<()> {
     let valid = !video_id.is_empty()
         && video_id.len() <= 32
-        && video_id
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '_');
+        && video_id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        });
 
     if !valid {
         return Err(AppError::Validation(format!(
@@ -66,10 +55,23 @@ pub fn yt_play_video(window: Window, video_id: String) -> AppResult<()> {
         .get_webview(YOUTUBE_WEBVIEW_LABEL)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
 
-    webview.eval(&format!(
-        "location.href = 'https://www.youtube.com/watch?v={video_id}'"
-    ))?;
+    let script = format!(
+        "(function(){{const open=()=>{{const link=document.createElement('a');link.href='https://www.youtube.com/watch?v={video_id}';link.style.display='none';document.body.appendChild(link);link.click();link.remove();}};if(document.body)open();else document.addEventListener('DOMContentLoaded',open,{{once:true}});}})();"
+    );
+    webview.eval(&script)?;
     Ok(())
+}
+
+/// Remembers a navigated YouTube page for the next launch.
+#[tauri::command]
+pub fn remember_youtube_page(state: State<'_, AppState>, url: String) -> AppResult<()> {
+    let url = crate::window::layout::normalize_youtube_url(&url)
+        .ok_or_else(|| AppError::Validation("invalid YouTube page URL".into()))?;
+    let mut settings = state
+        .settings
+        .write()
+        .map_err(|_| AppError::State("settings unavailable".into()))?;
+    settings.remember_youtube_url(url)
 }
 
 /// Opens the picture-in-picture window for the video that is playing.
@@ -276,7 +278,8 @@ pub fn pip_drag_end(app: tauri::AppHandle) -> AppResult<()> {
                 use crate::core::state::AppState;
                 if let Some(state) = app.try_state::<AppState>() {
                     if let Ok(mut store) = state.settings.write() {
-                        let (width, height) = (store.snapshot().pip.width, store.snapshot().pip.height);
+                        let (width, height) =
+                            (store.snapshot().pip.width, store.snapshot().pip.height);
                         store.set_pip_geometry(
                             Some(pos.x as f64 / scale.max(0.0001)),
                             Some(pos.y as f64 / scale.max(0.0001)),
@@ -293,16 +296,30 @@ pub fn pip_drag_end(app: tauri::AppHandle) -> AppResult<()> {
 
 /// Runs a navigation action in the YouTube webview.
 #[tauri::command]
-pub fn yt_navigate(window: Window, action: String) -> AppResult<()> {
+pub fn yt_navigate(window: Window, state: State<'_, AppState>, action: String) -> AppResult<()> {
     let webview = window
         .get_webview(YOUTUBE_WEBVIEW_LABEL)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
+
+    if action == "reload" {
+        webview.reload()?;
+        return Ok(());
+    }
+    if action == "voice" {
+        let deadline = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0)
+            .saturating_add(10_000);
+        state
+            .microphone_permission_until_ms
+            .store(deadline, Ordering::SeqCst);
+    }
 
     let script = match action.as_str() {
         "back" => "history.back()".to_string(),
         "forward" => "history.forward()".to_string(),
         "home" => "location.href = 'https://www.youtube.com'".to_string(),
-        "reload" => "location.reload()".to_string(),
         "guide" => r#"
         (function() {
           const guideBtn = document.querySelector('yt-icon-button#guide-button button, #guide-button #button, #guide-button button, yt-icon-button#guide-button');
@@ -322,7 +339,7 @@ pub fn yt_navigate(window: Window, action: String) -> AppResult<()> {
         })()
         "#.to_string(),
         "avatar" => "(function(){ const b = document.querySelector('#avatar-btn, ytd-topbar-menu-button-renderer #avatar-btn, button#avatar-btn'); if (b) b.click(); })()".to_string(),
-        "voice" => "(function(){ const b = document.querySelector('#voice-search-button button, yt-icon-button#voice-search-button button, #voice-search-button'); if (b) b.click(); })()".to_string(),
+        "voice" => "window.__ytdesktopActivateVoiceSearch ? window.__ytdesktopActivateVoiceSearch() : false".to_string(),
         act if act.starts_with("search:") => {
             let query = &act[7..];
             format!(
@@ -378,7 +395,152 @@ pub struct AuthSnapshot {
 /// Receives authentication status from the observer and emits to UI.
 #[tauri::command]
 pub fn auth_snapshot(window: Window, auth: AuthSnapshot) -> AppResult<()> {
-    let _ = window.app_handle().emit(crate::core::events::AUTH_UPDATE, &auth);
+    let _ = window
+        .app_handle()
+        .emit(crate::core::events::AUTH_UPDATE, &auth);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn request_auth_snapshot(window: Window) -> AppResult<()> {
+    let webview = window
+        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+        .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
+    webview.eval(
+        "window.__ytdesktopRequestAuthSnapshot && window.__ytdesktopRequestAuthSnapshot();",
+    )?;
+    Ok(())
+}
+
+/// Returns the current YouTube startup/loading state so the UI can reconcile if
+/// its event listener attached after the page finished loading.
+#[tauri::command]
+pub fn youtube_loading_state(state: State<'_, AppState>) -> bool {
+    state.youtube_loading.load(Ordering::SeqCst)
+}
+
+/// Ends the startup cover after the visible YouTube webview has rendered a frame.
+#[tauri::command]
+pub fn youtube_surface_painted(window: Window, state: State<'_, AppState>) -> AppResult<bool> {
+    let youtube = window
+        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+        .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
+    let is_youtube_page = youtube
+        .url()
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .map(|host| host == "youtube.com" || host.ends_with(".youtube.com"))
+        .unwrap_or(false);
+    if !is_youtube_page || !state.youtube_visible.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
+    if state.youtube_ready.load(Ordering::SeqCst) {
+        return Ok(true);
+    }
+
+    youtube.show()?;
+
+    state.youtube_ready.store(true, Ordering::SeqCst);
+    if state.youtube_loading.swap(false, Ordering::SeqCst) {
+        let _ = window
+            .app_handle()
+            .emit(crate::core::events::YOUTUBE_LOADING, false);
+    }
+
+    Ok(true)
+}
+
+/// Tracks native PiP lifecycle from the YouTube document.
+#[tauri::command]
+pub fn set_native_pip_active(app: AppHandle, state: State<'_, AppState>, active: bool) {
+    state.native_pip_active.store(active, Ordering::SeqCst);
+    crate::window::layout::set_native_pip_taskbar(&app, active);
+    if active {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            for _ in 0..5 {
+                tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                let Some(state) = handle.try_state::<AppState>() else {
+                    return;
+                };
+                if !state.native_pip_active.load(Ordering::SeqCst) {
+                    return;
+                }
+                crate::window::layout::set_native_pip_taskbar(&handle, true);
+            }
+        });
+    }
+}
+
+/// Restores the app and its YouTube page when native PiP asks to return to its opener.
+#[tauri::command]
+pub fn native_pip_return(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    state.native_pip_active.store(false, Ordering::SeqCst);
+    crate::window::layout::set_native_pip_taskbar(&app, false);
+
+    if let Some(tray) = app.tray_by_id(crate::window::tray::TRAY_ID) {
+        let _ = tray.set_visible(false);
+    }
+
+    let window = app
+        .get_window(crate::window::layout::MAIN_WINDOW_LABEL)
+        .ok_or_else(|| AppError::NotFound("main window".into()))?;
+    let _ = window.unminimize();
+    window.show()?;
+
+    if let Some(ui) = window.get_webview(UI_WEBVIEW_LABEL) {
+        ui.eval("document.dispatchEvent(new CustomEvent('app:navigate',{detail:'home'}));")?;
+    }
+
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn request_youtube_titlebar_icons(window: Window) -> AppResult<()> {
+    let webview = window
+        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+        .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
+    webview.eval(
+        "window.__ytdesktopReportTitlebarIcons && window.__ytdesktopReportTitlebarIcons();",
+    )?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YoutubeTitlebarIcons {
+    pub search: Option<String>,
+    pub voice: Option<String>,
+    pub clear: Option<String>,
+    pub guide: Option<String>,
+    pub account: Option<String>,
+    pub history: Option<String>,
+}
+
+#[tauri::command]
+pub fn youtube_titlebar_icons_snapshot(
+    window: Window,
+    icons: YoutubeTitlebarIcons,
+) -> AppResult<()> {
+    let valid = [
+        &icons.search,
+        &icons.voice,
+        &icons.clear,
+        &icons.guide,
+        &icons.account,
+        &icons.history,
+    ]
+    .into_iter()
+    .flatten()
+    .all(|svg| svg.len() <= 16_384 && svg.contains("<svg") && !svg.contains("<script"));
+    if !valid {
+        return Err(AppError::Validation("invalid YouTube icon data".into()));
+    }
+
+    let _ = window
+        .app_handle()
+        .emit(crate::core::events::TITLEBAR_ICONS, &icons);
     Ok(())
 }
 
@@ -390,6 +552,10 @@ pub struct ShowContextMenuArgs {
     pub width: Option<f64>,
     pub height: Option<f64>,
     pub auth: AuthSnapshot,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub active_route: Option<String>,
 }
 
 /// Positions and displays the native popover context menu window.
@@ -399,7 +565,14 @@ pub fn show_context_menu(app: tauri::AppHandle, args: ShowContextMenuArgs) -> Ap
         if let (Some(w), Some(h)) = (args.width, args.height) {
             let _ = menu.set_size(tauri::LogicalSize::new(w, h));
         }
-        let _ = app.emit("menu://data", &args.auth);
+        let _ = app.emit(
+            "menu://data",
+            serde_json::json!({
+                "auth": args.auth,
+                "mode": args.mode.unwrap_or_else(|| "account".into()),
+                "activeRoute": args.active_route,
+            }),
+        );
         let _ = menu.set_position(tauri::LogicalPosition::new(args.x, args.y));
         let _ = menu.show();
         let _ = menu.set_focus();
@@ -542,7 +715,7 @@ pub fn set_masthead_integrated(window: Window, integrated: bool) -> AppResult<()
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
 
     webview.eval(&format!(
-        "window.__ytdesktopSetMastheadIntegrated && window.__ytdesktopSetMastheadIntegrated({integrated});"
+        "window.__ytdesktopInitialMastheadIntegrated = {integrated}; if (window.__ytdesktopSetMastheadIntegrated) window.__ytdesktopSetMastheadIntegrated({integrated}); if (window.__ytdesktopReportTitlebarIcons) window.__ytdesktopReportTitlebarIcons();"
     ))?;
     Ok(())
 }
@@ -555,26 +728,51 @@ pub fn set_ui_elevation(
     state: State<'_, AppState>,
     elevated: bool,
 ) -> AppResult<()> {
-    state.ui_elevated.store(elevated, Ordering::SeqCst);
-    crate::window::layout::layout_webviews(&window)?;
+    let previous = state.ui_elevated.swap(elevated, Ordering::SeqCst);
+    if previous != elevated {
+        if let Err(error) = crate::window::layout::layout_webviews(&window) {
+            state.ui_elevated.store(previous, Ordering::SeqCst);
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+/// Keeps the launcher webview above YouTube while a local page is active.
+#[tauri::command]
+pub fn set_launcher_route_active(
+    window: Window,
+    state: State<'_, AppState>,
+    active: bool,
+) -> AppResult<()> {
+    let previous = state.launcher_route_active.swap(active, Ordering::SeqCst);
+    if previous != active {
+        if let Err(error) = crate::window::layout::layout_webviews(&window) {
+            state.launcher_route_active.store(previous, Ordering::SeqCst);
+            return Err(error);
+        }
+    }
     Ok(())
 }
 
 /// Fetches search suggestions directly via WinINet without browser CORS restrictions.
 #[tauri::command]
-pub fn yt_suggest(query: String) -> AppResult<Vec<String>> {
-    let trimmed = query.trim();
+pub async fn yt_suggest(query: String) -> AppResult<Vec<String>> {
+    let trimmed = query.trim().to_string();
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
 
-    #[cfg(target_os = "windows")]
-    {
+    tauri::async_runtime::spawn_blocking(move || {
+      #[cfg(target_os = "windows")]
+      {
         use std::ffi::c_void;
         use std::os::windows::ffi::OsStrExt;
 
-        let encoded = urlencoding(trimmed);
-        let url = format!("https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={encoded}");
+        let encoded = urlencoding(&trimmed);
+        let url = format!(
+            "https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&ds=yt&gs_ri=youtube&xhr=t&xssi=t&q={encoded}"
+        );
         let url_wide: Vec<u16> = std::ffi::OsStr::new(&url)
             .encode_wide()
             .chain(std::iter::once(0))
@@ -607,18 +805,23 @@ pub fn yt_suggest(query: String) -> AppResult<Vec<String>> {
                 dwNumberOfBytesToRead: u32,
                 lpdwNumberOfBytesRead: *mut u32,
             ) -> i32;
+            fn InternetSetOptionW(hInternet: *mut c_void, option: u32, buffer: *const c_void, length: u32) -> i32;
             fn InternetCloseHandle(hInternet: *mut c_void) -> i32;
         }
 
         unsafe {
             let h_internet = InternetOpenW(
                 agent_wide.as_ptr(),
-                1, /* INTERNET_OPEN_TYPE_DIRECT */
+                0, /* INTERNET_OPEN_TYPE_PRECONFIG: honor the Windows network configuration */
                 std::ptr::null(),
                 std::ptr::null(),
                 0,
             );
             if !h_internet.is_null() {
+                let timeout_ms = 1800u32;
+                for option in [2u32, 5, 6] {
+                    let _ = InternetSetOptionW(h_internet, option, &timeout_ms as *const _ as *const c_void, std::mem::size_of_val(&timeout_ms) as u32);
+                }
                 let h_url = InternetOpenUrlW(
                     h_internet,
                     url_wide.as_ptr(),
@@ -649,13 +852,25 @@ pub fn yt_suggest(query: String) -> AppResult<Vec<String>> {
                     InternetCloseHandle(h_internet);
 
                     if let Ok(text) = String::from_utf8(buffer) {
-                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                        let payload = text
+                            .strip_prefix(")]}'")
+                            .unwrap_or(&text)
+                            .trim_start_matches(|character: char| character.is_whitespace());
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(payload) {
                             if let Some(arr) = val.get(1).and_then(|v| v.as_array()) {
                                 let suggestions = arr
                                     .iter()
-                                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                                    .filter_map(|item| {
+                                        item.as_str()
+                                            .or_else(|| {
+                                                item.get(0).and_then(serde_json::Value::as_str)
+                                            })
+                                            .map(str::to_string)
+                                    })
+                                    .filter(|item| !item.is_empty())
+                                    .take(12)
                                     .collect();
-                                return Ok(suggestions);
+                                return suggestions;
                             }
                         }
                     }
@@ -664,9 +879,9 @@ pub fn yt_suggest(query: String) -> AppResult<Vec<String>> {
                 }
             }
         }
-    }
-
-    Ok(Vec::new())
+      }
+      Vec::new()
+    }).await.map_err(|_| AppError::State("search suggestions request failed".into()))
 }
 
 fn urlencoding(input: &str) -> String {
@@ -684,22 +899,4 @@ fn urlencoding(input: &str) -> String {
         }
     }
     encoded
-}
-
-/// Returns the current YouTube startup/loading state so the UI can reconcile if
-/// its event listener attached after the page finished loading.
-#[tauri::command]
-pub fn youtube_loading_state(state: State<'_, AppState>) -> bool {
-    state.youtube_loading.load(Ordering::SeqCst)
-}
-
-/// Completes the loading handoff once the YouTube document has rendered.
-#[tauri::command]
-pub fn youtube_surface_painted(app: AppHandle, state: State<'_, AppState>, generation: u64) {
-    if generation != state.youtube_load_generation.load(Ordering::SeqCst) {
-        return;
-    }
-    state.youtube_loading.store(false, Ordering::SeqCst);
-    let _ = app.emit(crate::core::events::YOUTUBE_SURFACE_LOADING, false);
-    let _ = app.emit(crate::core::events::YOUTUBE_LOADING, false);
 }

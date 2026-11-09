@@ -7,8 +7,8 @@ use crate::core::error::AppResult;
 use crate::core::paths::AppPaths;
 use crate::extensions::ExtensionService;
 use crate::history::HistoryRepository;
-use crate::player::WatchTracker;
 use crate::player::PlayerSnapshot;
+use crate::player::WatchTracker;
 use crate::rpc::RpcService;
 use crate::settings::SettingsStore;
 
@@ -23,15 +23,18 @@ pub struct AppState {
     /// Whether the YouTube webview is currently visible. Tracked so a webview
     /// rebuilt after an extension change keeps the right visibility.
     pub youtube_visible: AtomicBool,
-    /// Whether the YouTube page is still loading. The webview stays hidden
-    /// until it is ready, so the launcher can show a loading state.
+    /// Whether the opaque startup cover remains until YouTube paints a frame.
     pub youtube_loading: AtomicBool,
-    /// Whether this YouTube webview has a document that can be shown.
+    /// Whether YouTube has presented its first startup frame.
     pub youtube_ready: AtomicBool,
-    /// Identifies the current document so a late paint cannot complete a new load.
-    pub youtube_load_generation: AtomicU64,
     /// Whether the UI webview is elevated to full height to display dropdowns or menus.
     pub ui_elevated: AtomicBool,
+    /// Whether a launcher page is active above the persistent YouTube webview.
+    pub launcher_route_active: AtomicBool,
+    /// Expiration time for a microphone request explicitly initiated from the title bar.
+    pub microphone_permission_until_ms: AtomicU64,
+    /// Whether YouTube currently has a native video in Picture-in-Picture.
+    pub native_pip_active: AtomicBool,
     /// Last state reported by the YouTube player, used by picture-in-picture.
     pub last_player: Mutex<Option<PlayerSnapshot>>,
 }
@@ -55,8 +58,12 @@ impl AppState {
             youtube_visible: AtomicBool::new(true),
             youtube_loading: AtomicBool::new(true),
             youtube_ready: AtomicBool::new(false),
-            youtube_load_generation: AtomicU64::new(0),
             ui_elevated: AtomicBool::new(false),
+            // Keep the opaque launcher/loading surface above YouTube until the
+            // visible YouTube webview confirms its first rendered frame.
+            launcher_route_active: AtomicBool::new(true),
+            microphone_permission_until_ms: AtomicU64::new(0),
+            native_pip_active: AtomicBool::new(false),
             last_player: Mutex::new(None),
         })
     }

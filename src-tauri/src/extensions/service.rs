@@ -117,7 +117,11 @@ impl ExtensionService {
         Ok(summaries)
     }
 
-    fn install_single(&self, source_dir: &Path, custom_id: Option<&str>) -> AppResult<ExtensionSummary> {
+    fn install_single(
+        &self,
+        source_dir: &Path,
+        custom_id: Option<&str>,
+    ) -> AppResult<ExtensionSummary> {
         let target_root = match self.find_extension_root(source_dir) {
             Some(dir) => dir,
             None => {
@@ -165,10 +169,17 @@ impl ExtensionService {
     /// Installs extensions from a file (e.g. .zip) or folder (including all subfolders and .zip archives found inside).
     pub fn install(&self, source: &Path) -> AppResult<Vec<ExtensionSummary>> {
         // Direct zip file
-        if source.is_file() && source.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("zip")) {
+        if source.is_file()
+            && source
+                .extension()
+                .map_or(false, |ext| ext.eq_ignore_ascii_case("zip"))
+        {
             let temp_dir = std::env::temp_dir().join(format!(
                 "yt_ext_{}_{}",
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0),
                 source.file_stem().and_then(|s| s.to_str()).unwrap_or("ext")
             ));
             extract_zip(source, &temp_dir)?;
@@ -179,7 +190,9 @@ impl ExtensionService {
         }
 
         // Folder that is directly an extension
-        if source.is_dir() && (source.join("manifest.json").exists() || source.join("ytapp.json").exists()) {
+        if source.is_dir()
+            && (source.join("manifest.json").exists() || source.join("ytapp.json").exists())
+        {
             return Ok(vec![self.install_single(source, None)?]);
         }
 
@@ -191,10 +204,17 @@ impl ExtensionService {
             if let Ok(entries) = std::fs::read_dir(source) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.is_file() && path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("zip")) {
+                    if path.is_file()
+                        && path
+                            .extension()
+                            .map_or(false, |ext| ext.eq_ignore_ascii_case("zip"))
+                    {
                         let temp_dir = std::env::temp_dir().join(format!(
                             "yt_ext_{}_{}",
-                            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or(0),
                             path.file_stem().and_then(|s| s.to_str()).unwrap_or("ext")
                         ));
                         if let Ok(()) = extract_zip(&path, &temp_dir) {
@@ -303,7 +323,9 @@ impl ExtensionService {
                     .collect()
             })
             .or_else(|| {
-                chromium.as_ref().map(|manifest| manifest.permissions.clone())
+                chromium
+                    .as_ref()
+                    .map(|manifest| manifest.permissions.clone())
             })
             .unwrap_or_default();
 
@@ -348,9 +370,13 @@ fn resolve_id(ytapp: &Option<YtappManifest>, path: &Path) -> String {
         .map(|manifest| manifest.id.clone())
         .unwrap_or_else(|| {
             let folder = if path.is_file() {
-                path.file_stem().and_then(|name| name.to_str()).unwrap_or("extension")
+                path.file_stem()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("extension")
             } else {
-                path.file_name().and_then(|name| name.to_str()).unwrap_or("extension")
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("extension")
             };
             sanitize_id(folder)
         })

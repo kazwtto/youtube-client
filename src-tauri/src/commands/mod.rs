@@ -1,3 +1,4 @@
+pub mod browser_data;
 pub mod extensions;
 pub mod history;
 pub mod player;

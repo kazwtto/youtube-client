@@ -6,5 +6,5 @@ pub const EXTENSIONS_CHANGED: &str = "extensions://changed";
 pub const RPC_STATUS: &str = "rpc://status";
 pub const PLAYER_UPDATE: &str = "player://update";
 pub const YOUTUBE_LOADING: &str = "youtube://loading";
-pub const YOUTUBE_SURFACE_LOADING: &str = "youtube://surface-loading";
 pub const AUTH_UPDATE: &str = "youtube://auth";
+pub const TITLEBAR_ICONS: &str = "youtube://titlebar-icons";

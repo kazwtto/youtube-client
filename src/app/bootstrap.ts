@@ -1,3 +1,5 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
 import { initI18n, t } from "../i18n";
 import { initTheme } from "../theme/provider";
 import { createShell } from "./shell";
@@ -10,4 +12,5 @@ export async function bootstrap(): Promise<void> {
 
   await initTheme();
   createShell(root);
+  await getCurrentWindow().show();
 }

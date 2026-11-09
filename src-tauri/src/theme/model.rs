@@ -16,9 +16,9 @@ pub enum ThemeMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Backdrop {
-    #[default]
     Mica,
     Acrylic,
+    #[default]
     Solid,
 }
 
@@ -34,6 +34,7 @@ pub struct ThemeSettings {
     /// Base radius in pixels.
     pub radius: u16,
     pub motion: bool,
+    pub hide_scrollbars: bool,
 }
 
 impl Default for ThemeSettings {
@@ -41,10 +42,11 @@ impl Default for ThemeSettings {
         Self {
             theme_id: "fluent".to_string(),
             mode: ThemeMode::System,
-            backdrop: Backdrop::Mica,
+            backdrop: Backdrop::Solid,
             accent: "#ff0033".to_string(),
             radius: 8,
             motion: true,
+            hide_scrollbars: false,
         }
     }
 }
@@ -61,6 +63,7 @@ pub struct ResolvedTheme {
     pub backdrop: Backdrop,
     pub accent: String,
     pub motion: bool,
+    pub hide_scrollbars: bool,
     pub tokens: BTreeMap<String, String>,
 }
 

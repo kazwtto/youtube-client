@@ -49,7 +49,9 @@ impl HistoryRepository {
                    v.duration_secs AS duration_secs,
                    v.thumbnail_path AS thumbnail_path,
                    MAX(w.watched_at) AS last_watched_at,
-                   COUNT(w.id) AS watch_count
+                   COUNT(w.id) AS watch_count,
+                   (SELECT latest.position_secs FROM watch_events latest WHERE latest.video_id = v.id ORDER BY latest.watched_at DESC, latest.id DESC LIMIT 1) AS position_secs,
+                   (SELECT latest.watched_secs FROM watch_events latest WHERE latest.video_id = v.id ORDER BY latest.watched_at DESC, latest.id DESC LIMIT 1) AS watched_secs
             FROM videos v
             JOIN watch_events w ON w.video_id = v.id
             WHERE (?1 = '%%' OR v.title LIKE ?1 OR v.channel LIKE ?1)
@@ -65,6 +67,35 @@ impl HistoryRepository {
         .await?;
 
         Ok(rows)
+    }
+
+    /// Returns the latest useful resume point for a video, if it has one.
+    pub async fn resume_position(&self, video_id: &str) -> AppResult<Option<f64>> {
+        let progress = sqlx::query_as::<_, (f64, Option<f64>)>(
+            r#"
+            SELECT latest.position_secs, v.duration_secs
+            FROM watch_events latest
+            JOIN videos v ON v.id = latest.video_id
+            WHERE latest.video_id = ?1
+            ORDER BY latest.watched_at DESC, latest.id DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(video_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some((position, duration)) = progress else {
+            return Ok(None);
+        };
+        if !position.is_finite() || position < 2.0 {
+            return Ok(None);
+        }
+        if duration.is_some_and(|duration| position >= duration - 5.0) {
+            return Ok(None);
+        }
+
+        Ok(Some(position))
     }
 
     /// Records a playback event, updating the video metadata.
@@ -94,18 +125,99 @@ impl HistoryRepository {
 
         sqlx::query(
             r#"
-            INSERT INTO watch_events (video_id, watched_at, position_secs, completed)
-            VALUES (?1, ?2, ?3, ?4)
+            INSERT INTO watch_events (video_id, watched_at, position_secs, completed, watched_secs, session_key)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             "#,
         )
         .bind(&event.video_id)
         .bind(watched_at)
-        .bind(0.0_f64)
+        .bind(event.position_secs.unwrap_or_default())
         .bind(false)
+        .bind(event.watched_secs.unwrap_or_default())
+        .bind(&event.session_key)
         .execute(&self.pool)
         .await?;
 
         Ok(())
+    }
+
+    /// Updates progress for the active playback session.
+    pub async fn update_progress(&self, event: WatchEventInput) -> AppResult<()> {
+        let Some(session_key) = event.session_key.as_deref() else {
+            return Err(AppError::Validation("watch session key is missing".into()));
+        };
+        let mut tx = self.pool.begin().await?;
+        let watched_at = now_millis();
+
+        sqlx::query(
+            r#"
+            UPDATE videos SET title = ?1, channel = ?2,
+                duration_secs = COALESCE(?3, duration_secs),
+                thumbnail_path = COALESCE(thumbnail_path, ?4), updated_at = ?5
+            WHERE id = ?6
+            "#,
+        )
+        .bind(&event.title)
+        .bind(&event.channel)
+        .bind(event.duration_secs)
+        .bind(&event.thumbnail_url)
+        .bind(watched_at)
+        .bind(&event.video_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE watch_events SET position_secs = ?1, watched_secs = ?2 WHERE session_key = ?3",
+        )
+        .bind(event.position_secs.unwrap_or_default())
+        .bind(event.watched_secs.unwrap_or_default())
+        .bind(session_key)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Adds imported browser history without duplicating videos already saved.
+    pub async fn import_browser_history(&self, events: Vec<WatchEventInput>) -> AppResult<usize> {
+        let mut tx = self.pool.begin().await?;
+        let mut imported = 0;
+
+        for event in events {
+            let watched_at = event.watched_at.unwrap_or_else(now_millis);
+            let inserted = sqlx::query(
+                r#"
+                INSERT INTO videos (id, title, channel, duration_secs, thumbnail_path, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                ON CONFLICT(id) DO NOTHING
+                "#,
+            )
+            .bind(&event.video_id)
+            .bind(&event.title)
+            .bind(&event.channel)
+            .bind(event.duration_secs)
+            .bind(&event.thumbnail_url)
+            .bind(watched_at)
+            .execute(&mut *tx)
+            .await?;
+
+            if inserted.rows_affected() == 0 {
+                continue;
+            }
+
+            sqlx::query(
+                "INSERT INTO watch_events (video_id, watched_at, position_secs, completed) VALUES (?1, ?2, 0.0, 0)",
+            )
+            .bind(&event.video_id)
+            .bind(watched_at)
+            .execute(&mut *tx)
+            .await?;
+            imported += 1;
+        }
+
+        tx.commit().await?;
+        Ok(imported)
     }
 
     /// Removes a video and, by cascade, its events.
@@ -156,6 +268,9 @@ mod tests {
             duration_secs: Some(120.0),
             thumbnail_url: thumbnail.map(str::to_string),
             watched_at: Some(watched_at),
+            position_secs: None,
+            watched_secs: None,
+            session_key: None,
         }
     }
 

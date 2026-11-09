@@ -21,6 +21,11 @@
   width: 100%;
 }
 
+/* The suggestion list opens below the fixed-height title bar. */
+.titlebar:has(.titlebar__search-suggestions:not([hidden])) {
+  overflow: visible;
+}
+
 .titlebar__brand {
   display: flex;
   align-items: center;
@@ -166,6 +171,10 @@
   animation: ytdesktop-content-enter 160ms ease-out both;
 }
 
+.page-container--enter-paused {
+  animation-play-state: paused;
+}
+
 @keyframes ytdesktop-content-enter {
   from {
     opacity: 0;
@@ -174,6 +183,21 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+.content--youtube-exit {
+  animation: ytdesktop-content-exit 160ms ease-out both;
+}
+
+@keyframes ytdesktop-content-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
   }
 }
 
@@ -217,10 +241,6 @@
 .content[data-youtube="true"] {
   padding: 0;
   background: transparent;
-}
-
-.content[data-youtube="true"][data-youtube-navigation-loading="true"] {
-  background: var(--color-bg-solid);
 }
 
 .content[data-youtube="true"] > * {
@@ -413,6 +433,7 @@
 /* Tabs in the title bar (YouTube-style underline tabs) */
 
 .titlebar__tabs {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: 2px;
@@ -420,6 +441,15 @@
   min-width: 0;
   flex: 0 1 auto;
   overflow: hidden;
+}
+
+.titlebar__icons {
+  position: relative;
+  align-self: stretch;
+}
+
+.titlebar__sections-menu {
+  flex-shrink: 0;
 }
 
 .titlebar__tab {
@@ -466,15 +496,44 @@
   color: var(--color-fg);
 }
 
-.titlebar__tab--active::after {
+.titlebar__tabs:not([data-indicator-ready="true"]) .titlebar__tab--active::after,
+.titlebar__icons:not([data-indicator-ready="true"]) .titlebar__button--active::after {
   content: "";
   position: absolute;
-  right: 11px;
   bottom: 0;
-  left: 11px;
   height: 2px;
   border-radius: 2px;
   background: var(--color-fg);
+}
+
+.titlebar__tabs:not([data-indicator-ready="true"]) .titlebar__tab--active::after {
+  right: 11px;
+  left: 11px;
+}
+
+.titlebar__icons:not([data-indicator-ready="true"]) .titlebar__button--active::after {
+  right: 4px;
+  left: 4px;
+}
+
+.titlebar__tabs .titlebar__tab-indicator,
+.titlebar__icons .titlebar__tab-indicator {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  bottom: 0;
+  width: var(--tab-indicator-width, 0px);
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-fg);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(var(--tab-indicator-x, 0px));
+}
+
+.titlebar__tabs[data-indicator-ready="true"] .titlebar__tab-indicator,
+.titlebar__icons[data-indicator-ready="true"] .titlebar__tab-indicator {
+  opacity: 1;
 }
 
 .titlebar__dot {
@@ -628,7 +687,8 @@
 }
 
 .titlebar:not(.titlebar--integrated-masthead) .titlebar__tabs,
-.titlebar:not(.titlebar--integrated-masthead) .titlebar__icons {
+.titlebar:not(.titlebar--integrated-masthead) .titlebar__icons,
+.titlebar:not(.titlebar--integrated-masthead) .titlebar__sections-menu {
   order: 3;
   margin-left: 0;
 }
@@ -674,7 +734,8 @@
 }
 
 .titlebar--integrated-masthead .titlebar__tabs,
-.titlebar--integrated-masthead .titlebar__icons {
+.titlebar--integrated-masthead .titlebar__icons,
+.titlebar--integrated-masthead .titlebar__sections-menu {
   order: 7;
   margin-left: 0;
 }
@@ -759,7 +820,8 @@
 
 @media (max-width: 560px) {
   .titlebar__group:not(.titlebar__controls) .titlebar__button,
-  .titlebar__button--app {
+  .titlebar__button--app,
+  .titlebar__sections-menu {
     width: 26px;
   }
 
@@ -773,6 +835,10 @@
     min-width: 52px;
   }
 
+  .titlebar__search-suggestions {
+    right: 0;
+  }
+
   .titlebar__tab {
     width: 27px;
   }
@@ -783,6 +849,7 @@
 }
 
 .titlebar__search-box {
+  position: relative;
   display: flex;
   align-items: center;
   flex: 1;
@@ -900,12 +967,12 @@
   position: absolute;
   top: calc(100% + 5px);
   left: 0;
-  right: 36px;
+  right: 0;
   background: #212121;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
+  border-radius: 14px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
-  padding: 6px 0;
+  padding: 8px 0;
   z-index: 1000;
   max-height: 360px;
   overflow-y: auto;
@@ -915,6 +982,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
+  min-height: 44px;
   color: #f1f1f1;
   transition: background var(--motion-fast) ease;
 }
@@ -929,16 +997,24 @@
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
-  padding: 7px 14px;
+  height: 44px;
+  padding: 0 24px;
   border: 0;
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
   text-align: left;
   cursor: pointer;
+}
+
+.titlebar__suggestion-item--loading .titlebar__suggestion-choice {
+  color: #aaa;
+  cursor: default;
 }
 
 .titlebar__suggestion-choice:focus-visible {
@@ -947,8 +1023,10 @@
 }
 
 .titlebar__suggestion-icon {
-  color: #909090;
-  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  color: #f1f1f1;
+  flex: 0 0 24px;
 }
 
 .titlebar__suggestion-text {
@@ -1025,6 +1103,51 @@
   justify-content: center;
   background: rgba(255, 255, 255, 0.12);
   color: var(--color-fg);
+}
+
+.titlebar__auth-loading {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  flex: 0 0 auto;
+}
+
+.titlebar__auth-loading-track {
+  display: block;
+  width: 18px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.titlebar__auth-loading-track > span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: #f03;
+  animation: titlebar-auth-progress 900ms ease-in-out infinite alternate;
+}
+
+@keyframes titlebar-auth-progress {
+  from { transform: translateX(-5%); }
+  to { transform: translateX(145%); }
+}
+
+[data-motion="off"] .titlebar__auth-loading-track > span {
+  width: 42%;
+  margin-inline: auto;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .titlebar__auth-loading-track > span {
+    width: 42%;
+    margin-inline: auto;
+    animation: none;
+  }
 }
 
 .titlebar__suggestion-item--history .titlebar__suggestion-icon {
@@ -1171,9 +1294,24 @@
   color: #f1f1f1;
 }
 
+.yt-context-menu__item-check {
+  margin-left: auto;
+}
+
 .yt-context-menu__item--highlight {
   color: #3ea6ff;
   font-weight: 500;
+}
+
+.yt-context-menu__item--selected {
+  border-radius: var(--radius-sm);
+  background: var(--color-pressed);
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.yt-context-menu__item--selected svg {
+  color: var(--color-accent);
 }
 
 .yt-context-menu__item--highlight svg {
@@ -1203,3 +1341,13 @@
   background: rgba(255, 255, 255, 0.35);
 }
 
+/* temp style youtube accent */
+.titlebar__button--active {
+  color: var(--color-accent);
+
+  & svg { fill: none; }
+}
+
+.titlebar__tabs .titlebar__tab-indicator,
+.titlebar__icons .titlebar__tab-indicator {
+  background: var(--color-accent);}

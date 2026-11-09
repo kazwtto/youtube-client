@@ -124,7 +124,11 @@ fn resolve_chrome_msg(extension_dir: &Path, key: &str) -> Option<String> {
         if file.exists() {
             if let Ok(raw) = std::fs::read_to_string(&file) {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
-                    if let Some(msg) = val.get(key).and_then(|entry| entry.get("message")).and_then(|m| m.as_str()) {
+                    if let Some(msg) = val
+                        .get(key)
+                        .and_then(|entry| entry.get("message"))
+                        .and_then(|m| m.as_str())
+                    {
                         if !msg.is_empty() {
                             return Some(msg.to_string());
                         }

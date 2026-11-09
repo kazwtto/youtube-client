@@ -23,7 +23,7 @@ pub fn settings_update(
     state: State<'_, AppState>,
     settings: AppSettings,
 ) -> AppResult<AppSettings> {
-    let next = {
+    let (previous_language, previous_masthead, next) = {
         let mut store = state
             .settings
             .write()
@@ -33,9 +33,28 @@ pub fn settings_update(
         // settings form. Preserve the value the app has already remembered,
         // otherwise an auto-save made after a resize could roll it back.
         let mut incoming = settings;
-        incoming.window = store.snapshot().window;
-        store.replace(incoming)?
+        let current = store.snapshot();
+        incoming.window = current.window;
+        incoming.general.last_youtube_url = current.general.last_youtube_url;
+        let previous_language = current.general.language;
+        let previous_masthead = current.general.integrate_masthead;
+        (
+            previous_language,
+            previous_masthead,
+            store.replace(incoming)?,
+        )
     };
+
+    if previous_language != next.general.language {
+        let _ = crate::window::tray::update_menu(&window.app_handle(), &next.general.language);
+    }
+
+    if previous_masthead != next.general.integrate_masthead {
+        let _ = crate::commands::window::set_masthead_integrated(
+            window.clone(),
+            next.general.integrate_masthead,
+        );
+    }
 
     let system_dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
     if let Ok(resolved) = ThemeService::resolve(&next.theme, system_dark) {

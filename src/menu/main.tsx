@@ -13,6 +13,13 @@ import { Icon, type IconName, type YoutubeIconName } from "../components/icons";
 import { initI18n, onLanguageChange, t, type TranslationKey } from "../i18n";
 import type { AuthSnapshot } from "../lib/api";
 import { initTheme } from "../theme/provider";
+import { APP_SECTIONS } from "../app/navigation";
+
+interface MenuData {
+  auth: AuthSnapshot;
+  mode: "account" | "sections";
+  activeRoute?: string;
+}
 
 const ACCOUNT_ITEMS: Array<[string, TranslationKey, YoutubeIconName | IconName]> = [
   ["channel", "menu.channel", "account"],
@@ -25,16 +32,23 @@ const ACCOUNT_ITEMS: Array<[string, TranslationKey, YoutubeIconName | IconName]>
   ["settings-app", "menu.appSettings", "settings"],
 ];
 
-function MenuItem(props: { action: string; label: TranslationKey; icon: YoutubeIconName | IconName; highlight?: boolean; onSelect: (action: string) => void }) {
+function MenuItem(props: { action: string; label: TranslationKey; icon: YoutubeIconName | IconName; highlight?: boolean; selected?: boolean; onSelect: (action: string) => void }) {
   return (
     <button
       type="button"
       class="yt-context-menu__item"
-      classList={{ "yt-context-menu__item--highlight": props.highlight === true }}
+      classList={{
+        "yt-context-menu__item--highlight": props.highlight === true,
+        "yt-context-menu__item--selected": props.selected === true,
+      }}
+      role={props.selected === undefined ? undefined : "menuitemradio"}
+      aria-checked={props.selected}
+      aria-current={props.selected ? "page" : undefined}
       onClick={() => props.onSelect(props.action)}
     >
       <Icon name={props.icon} size={20} />
       <span>{t(props.label)}</span>
+      <Show when={props.selected}><Icon name="check" size={16} class="yt-context-menu__item-check" /></Show>
     </button>
   );
 }
@@ -42,6 +56,8 @@ function MenuItem(props: { action: string; label: TranslationKey; icon: YoutubeI
 function MenuView() {
   // Render initial fallback state
   const [auth, setAuth] = createSignal<AuthSnapshot>({ loggedIn: false });
+  const [mode, setMode] = createSignal<MenuData["mode"]>("account");
+  const [activeRoute, setActiveRoute] = createSignal("home");
   const [avatarFailed, setAvatarFailed] = createSignal(false);
   let host!: HTMLDivElement;
   let avatarImage!: HTMLImageElement;
@@ -89,8 +105,11 @@ function MenuView() {
     window.addEventListener("blur", onBlur);
     document.addEventListener("pointerdown", onPointerDown);
 
-    void listen<AuthSnapshot>("menu://data", (event) => {
-      if (event.payload) setAuth(event.payload);
+    void listen<MenuData>("menu://data", (event) => {
+      if (!event.payload) return;
+      setAuth(event.payload.auth);
+      setMode(event.payload.mode ?? "account");
+      setActiveRoute(event.payload.activeRoute ?? "home");
     }).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;
@@ -111,50 +130,67 @@ function MenuView() {
 
   return (
     <div class="yt-context-menu" ref={host}>
-      <Show when={auth().loggedIn} fallback={
-        <div class="yt-context-menu__body">
-          <MenuItem action="login" label="menu.signIn" icon="account" highlight onSelect={handleAction} />
-          <MenuItem action="your-data" label="menu.yourData" icon="your-data" onSelect={handleAction} />
-          <div class="yt-context-menu__divider" />
-          <MenuItem action="shortcuts" label="menu.shortcuts" icon="shortcuts" onSelect={handleAction} />
-          <MenuItem action="settings-app" label="menu.appSettings" icon="settings" onSelect={handleAction} />
-          <MenuItem action="help" label="menu.help" icon="help" onSelect={handleAction} />
+      <Show
+        when={mode() === "sections"}
+        fallback={
+          <Show when={auth().loggedIn} fallback={
+            <div class="yt-context-menu__body">
+              <MenuItem action="login" label="menu.signIn" icon="account" highlight onSelect={handleAction} />
+              <MenuItem action="your-data" label="menu.yourData" icon="your-data" onSelect={handleAction} />
+              <div class="yt-context-menu__divider" />
+              <MenuItem action="shortcuts" label="menu.shortcuts" icon="shortcuts" onSelect={handleAction} />
+              <MenuItem action="settings-app" label="menu.appSettings" icon="settings" onSelect={handleAction} />
+              <MenuItem action="help" label="menu.help" icon="help" onSelect={handleAction} />
+            </div>
+          }>
+            <>
+              <div class="yt-context-menu__header">
+                <div class="yt-context-menu__avatar-container">
+                  <Show when={auth().avatarUrl}>
+                    <img
+                      class="yt-context-menu__header-avatar"
+                      src={auth().avatarUrl!}
+                      referrerpolicy="no-referrer"
+                      alt=""
+                      ref={avatarImage}
+                      style={{ display: avatarFailed() ? "none" : "block" }}
+                      onError={() => setAvatarFailed(true)}
+                    />
+                  </Show>
+                  <span
+                    class="yt-context-menu__header-avatar--fallback"
+                    style={{ display: auth().avatarUrl && !avatarFailed() ? "none" : "flex" }}
+                  >
+                    <Icon name="account" size={24} />
+                  </span>
+                </div>
+                <div class="yt-context-menu__header-info">
+                  <span class="yt-context-menu__header-name">{auth().displayName || auth().handle || t("menu.myAccount")}</span>
+                  <Show when={auth().handle}><span class="yt-context-menu__header-handle">{auth().handle}</span></Show>
+                </div>
+              </div>
+              <div class="yt-context-menu__body">
+                <For each={ACCOUNT_ITEMS.slice(0, 4)}>{([action, label, icon]) => <MenuItem action={action} label={label} icon={icon} onSelect={handleAction} />}</For>
+                <div class="yt-context-menu__divider" />
+                <For each={ACCOUNT_ITEMS.slice(4, 6)}>{([action, label, icon]) => <MenuItem action={action} label={label} icon={icon} onSelect={handleAction} />}</For>
+                <div class="yt-context-menu__divider" />
+                <For each={ACCOUNT_ITEMS.slice(6)}>{([action, label, icon]) => <MenuItem action={action} label={label} icon={icon} onSelect={handleAction} />}</For>
+              </div>
+            </>
+          </Show>
+        }
+      >
+        <div class="yt-context-menu__body" role="menu" aria-label={t("titlebar.appActions")}>
+            <For each={APP_SECTIONS}>{({ id: route, labelKey, icon }) => (
+              <MenuItem
+                action={`section:${route}`}
+                label={labelKey}
+                icon={icon}
+                selected={activeRoute() === route}
+                onSelect={handleAction}
+              />
+            )}</For>
         </div>
-      }>
-        <>
-          <div class="yt-context-menu__header">
-            <div class="yt-context-menu__avatar-container">
-              <Show when={auth().avatarUrl}>
-                <img
-                  class="yt-context-menu__header-avatar"
-                  src={auth().avatarUrl!}
-                  referrerpolicy="no-referrer"
-                  alt=""
-                  ref={avatarImage}
-                  style={{ display: avatarFailed() ? "none" : "block" }}
-                  onError={() => setAvatarFailed(true)}
-                />
-              </Show>
-              <span
-                class="yt-context-menu__header-avatar--fallback"
-                style={{ display: auth().avatarUrl && !avatarFailed() ? "none" : "flex" }}
-              >
-                <Icon name="account" size={24} />
-              </span>
-            </div>
-            <div class="yt-context-menu__header-info">
-              <span class="yt-context-menu__header-name">{auth().displayName || auth().handle || t("menu.myAccount")}</span>
-              <Show when={auth().handle}><span class="yt-context-menu__header-handle">{auth().handle}</span></Show>
-            </div>
-          </div>
-          <div class="yt-context-menu__body">
-            <For each={ACCOUNT_ITEMS.slice(0, 4)}>{([action, label, icon]) => <MenuItem action={action} label={label} icon={icon} onSelect={handleAction} />}</For>
-            <div class="yt-context-menu__divider" />
-            <For each={ACCOUNT_ITEMS.slice(4, 6)}>{([action, label, icon]) => <MenuItem action={action} label={label} icon={icon} onSelect={handleAction} />}</For>
-            <div class="yt-context-menu__divider" />
-            <For each={ACCOUNT_ITEMS.slice(6)}>{([action, label, icon]) => <MenuItem action={action} label={label} icon={icon} onSelect={handleAction} />}</For>
-          </div>
-        </>
       </Show>
     </div>
   );

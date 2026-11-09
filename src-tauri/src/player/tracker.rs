@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use super::model::PlayerSnapshot;
 
 /// Largest increase in playback position accepted between two observations.
@@ -5,15 +8,21 @@ use super::model::PlayerSnapshot;
 /// The observer samples the player every couple of seconds, so a larger jump
 /// means the user seeked; that time is not counted as watched.
 const MAX_SAMPLE_GAP_SECS: f64 = 5.0;
+const PROGRESS_SAVE_INTERVAL_SECS: f64 = 5.0;
+static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Watch event ready to be stored in the history.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatchRecord {
+    pub session_key: String,
     pub video_id: String,
     pub title: String,
     pub channel: String,
     pub duration_secs: Option<f64>,
     pub thumbnail_url: Option<String>,
+    pub watched_secs: f64,
+    pub position_secs: f64,
+    pub is_new_session: bool,
 }
 
 /// Tracks playback time and decides when a video counts as watched.
@@ -28,10 +37,95 @@ pub struct WatchTracker {
 
 #[derive(Debug)]
 struct Session {
+    session_key: String,
     video_id: String,
+    title: String,
+    channel: String,
+    duration_secs: Option<f64>,
+    thumbnail_url: Option<String>,
     watched_secs: f64,
     last_position: Option<f64>,
+    saved_watched_secs: f64,
+    saved_position: Option<f64>,
     recorded: bool,
+}
+
+impl Session {
+    fn new(video_id: String, snapshot: &PlayerSnapshot) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        Self {
+            session_key: format!(
+                "{}-{now}-{}",
+                std::process::id(),
+                NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)
+            ),
+            video_id: video_id.clone(),
+            title: snapshot
+                .title
+                .clone()
+                .filter(|value| !value.is_empty())
+                .unwrap_or(video_id),
+            channel: snapshot.channel.clone().unwrap_or_default(),
+            duration_secs: snapshot.duration_secs,
+            thumbnail_url: snapshot
+                .artwork_url
+                .clone()
+                .filter(|value| !value.is_empty()),
+            watched_secs: 0.0,
+            last_position: None,
+            saved_watched_secs: 0.0,
+            saved_position: None,
+            recorded: false,
+        }
+    }
+
+    fn update_metadata(&mut self, snapshot: &PlayerSnapshot) {
+        if let Some(title) = snapshot.title.as_ref().filter(|value| !value.is_empty()) {
+            self.title.clone_from(title);
+        }
+        if let Some(channel) = snapshot.channel.as_ref() {
+            self.channel.clone_from(channel);
+        }
+        if snapshot.duration_secs.is_some() {
+            self.duration_secs = snapshot.duration_secs;
+        }
+        if let Some(artwork) = snapshot
+            .artwork_url
+            .as_ref()
+            .filter(|value| !value.is_empty())
+        {
+            self.thumbnail_url = Some(artwork.clone());
+        }
+    }
+
+    fn save_progress_anchor(&mut self) {
+        self.saved_watched_secs = self.watched_secs;
+        self.saved_position = self.last_position;
+    }
+
+    fn to_record(&self, is_new_session: bool) -> WatchRecord {
+        WatchRecord {
+            session_key: self.session_key.clone(),
+            video_id: self.video_id.clone(),
+            title: self.title.clone(),
+            channel: self.channel.clone(),
+            duration_secs: self.duration_secs,
+            thumbnail_url: self.thumbnail_url.clone(),
+            watched_secs: self.watched_secs,
+            position_secs: self.last_position.unwrap_or_default(),
+            is_new_session,
+        }
+    }
+
+    fn final_progress(self) -> Option<WatchRecord> {
+        (self.recorded
+            && (self.watched_secs > self.saved_watched_secs
+                || self.last_position != self.saved_position))
+            .then(|| self.to_record(false))
+    }
 }
 
 impl WatchTracker {
@@ -42,25 +136,24 @@ impl WatchTracker {
         minimum_watch_secs: f64,
     ) -> Option<WatchRecord> {
         let Some(video_id) = snapshot.video_id.clone().filter(|value| !value.is_empty()) else {
-            self.current = None;
-            return None;
+            return self.current.take().and_then(Session::final_progress);
         };
 
-        if !self
+        let changed = !self
             .current
             .as_ref()
             .map(|session| session.video_id == video_id)
-            .unwrap_or(false)
-        {
-            self.current = Some(Session {
-                video_id: video_id.clone(),
-                watched_secs: 0.0,
-                last_position: None,
-                recorded: false,
-            });
+            .unwrap_or(false);
+        if changed {
+            let previous = self.current.take().and_then(Session::final_progress);
+            self.current = Some(Session::new(video_id, snapshot));
+            if previous.is_some() {
+                return previous;
+            }
         }
 
         let session = self.current.as_mut().expect("session was just created");
+        session.update_metadata(snapshot);
 
         if snapshot.is_playing {
             if let Some(position) = snapshot.position_secs {
@@ -78,26 +171,25 @@ impl WatchTracker {
             session.last_position = snapshot.position_secs;
         }
 
-        if session.recorded || session.watched_secs < minimum_watch_secs {
+        if !session.recorded && session.watched_secs < minimum_watch_secs {
             return None;
         }
 
-        session.recorded = true;
+        if !session.recorded {
+            session.recorded = true;
+            session.save_progress_anchor();
+            return Some(session.to_record(true));
+        }
 
-        Some(WatchRecord {
-            video_id: video_id.clone(),
-            title: snapshot
-                .title
-                .clone()
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| video_id.clone()),
-            channel: snapshot.channel.clone().unwrap_or_default(),
-            duration_secs: snapshot.duration_secs,
-            thumbnail_url: snapshot
-                .artwork_url
-                .clone()
-                .filter(|value| !value.is_empty()),
-        })
+        let position_changed = session.last_position != session.saved_position;
+        if session.watched_secs - session.saved_watched_secs < PROGRESS_SAVE_INTERVAL_SECS
+            && (snapshot.is_playing || !position_changed)
+        {
+            return None;
+        }
+
+        session.save_progress_anchor();
+        Some(session.to_record(false))
     }
 
     /// Forgets the current session, e.g. when history recording is disabled.

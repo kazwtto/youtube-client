@@ -46,6 +46,7 @@ impl ThemeService {
             backdrop: effective.backdrop,
             accent: settings.accent.clone(),
             motion: settings.motion,
+            hide_scrollbars: settings.hide_scrollbars,
             tokens: tokens::build(palette, &effective, effective_dark),
         })
     }
@@ -58,39 +59,46 @@ impl ThemeService {
 
         #[cfg(windows)]
         {
+            use tauri::window::Color;
             use window_vibrancy::{apply_acrylic, apply_mica, clear_acrylic, clear_mica};
 
             // Applying a material can change the window frame on some Windows
             // builds, which visibly grows the window. Restore the client size
             // afterwards if the compositor changed it.
             let size_before = window.inner_size().ok();
-            let resizable = !window.is_maximized().unwrap_or(false)
-                && !window.is_fullscreen().unwrap_or(false);
+            let resizable =
+                !window.is_maximized().unwrap_or(false) && !window.is_fullscreen().unwrap_or(false);
 
+            let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
             match resolved.backdrop {
                 Backdrop::Mica => {
                     let _ = clear_acrylic(window);
                     if apply_mica(window, Some(dark)).is_err() {
-                        // Fallback gracefully on Windows builds without Mica support
                         let _ = clear_mica(window);
+                        let _ = window.set_background_color(Some(fallback_background(resolved)));
                     }
                 }
                 Backdrop::Acrylic => {
                     let _ = clear_mica(window);
                     if apply_acrylic(window, None).is_err() {
-                        // Fallback gracefully on Windows builds without Acrylic support
                         let _ = clear_acrylic(window);
+                        let _ = window.set_background_color(Some(fallback_background(resolved)));
                     }
                 }
                 Backdrop::Solid => {
                     let _ = clear_mica(window);
                     let _ = clear_acrylic(window);
+                    let _ = window.set_background_color(Some(fallback_background(resolved)));
                 }
             }
 
             if resizable {
                 if let Some(before) = size_before {
-                    if window.inner_size().map(|now| now != before).unwrap_or(false) {
+                    if window
+                        .inner_size()
+                        .map(|now| now != before)
+                        .unwrap_or(false)
+                    {
                         let _ = window.set_size(tauri::Size::Physical(before));
                     }
                 }
@@ -116,6 +124,20 @@ impl ThemeService {
         webview.eval(&script).map_err(AppError::from)?;
         Ok(())
     }
+}
+
+#[cfg(windows)]
+fn fallback_background(resolved: &ResolvedTheme) -> tauri::window::Color {
+    let value = resolved
+        .tokens
+        .get("--color-bg-solid")
+        .and_then(|value| value.strip_prefix('#'))
+        .filter(|value| value.len() == 6 && value.chars().all(|ch| ch.is_ascii_hexdigit()));
+    let Some(value) = value else {
+        return tauri::window::Color(15, 15, 15, 255);
+    };
+    let channel = |start| u8::from_str_radix(&value[start..start + 2], 16).unwrap_or(15);
+    tauri::window::Color(channel(0), channel(2), channel(4), 255)
 }
 
 fn validate_hex(value: &str) -> AppResult<()> {

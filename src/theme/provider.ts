@@ -15,6 +15,7 @@ export function applyTheme(theme: ResolvedTheme): void {
   root.dataset.theme = theme.effectiveMode;
   root.dataset.backdrop = theme.backdrop;
   root.dataset.motion = theme.motion ? "on" : "off";
+  root.dataset.hideScrollbars = theme.hideScrollbars ? "true" : "false";
 }
 
 /// Loads the saved theme and listens for changes emitted by the backend.

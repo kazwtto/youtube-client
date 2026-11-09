@@ -1,14 +1,14 @@
 use std::path::Path;
 use std::time::Duration;
 
-use tauri::webview::WebviewBuilder;
+use tauri::webview::{PermissionKind, PermissionResponse, WebviewBuilder};
 use tauri::window::Color;
 use tauri::{App, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, Window, WindowEvent};
 
 use crate::core::error::{AppError, AppResult};
 use crate::core::state::AppState;
 use crate::settings::model::WindowSettings;
-use crate::theme::model::ResolvedTheme;
+use crate::theme::model::{ResolvedTheme, ThemeSettings};
 use crate::theme::service::ThemeService;
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
@@ -42,26 +42,29 @@ pub fn setup(
     webview_data_dir: &Path,
     window_settings: &WindowSettings,
 ) -> AppResult<Window> {
-    let width = window_settings.width.max(960.0);
-    let height = window_settings.height.max(600.0);
+    let width = window_settings.width.max(520.0);
+    let height = window_settings.height.max(420.0);
 
     let window = tauri::window::WindowBuilder::new(app, MAIN_WINDOW_LABEL)
         .title("YouTube Client")
         .inner_size(width, height)
-        .min_inner_size(960.0, 600.0)
+        .min_inner_size(520.0, 420.0)
         .decorations(false)
         .transparent(true)
+        .visible(false)
         .maximized(window_settings.maximized)
         .build()?;
 
     let ui = WebviewBuilder::new(UI_WEBVIEW_LABEL, WebviewUrl::App("index.html".into()))
         .data_directory(webview_data_dir.join("ui"))
         .background_color(Color(0, 0, 0, 0));
-    window.add_child(
+    let ui = window.add_child(
         ui,
         LogicalPosition::new(0.0, 0.0),
         LogicalSize::new(INITIAL_WIDTH, INITIAL_HEIGHT),
     )?;
+    #[cfg(windows)]
+    super::webview_popups::watch(&window, &ui);
 
     let theme = current_theme(&window);
     add_youtube(&window, webview_data_dir, theme.as_ref())?;
@@ -70,6 +73,7 @@ pub fn setup(
     observe_window(&window);
     setup_menu_window(app, webview_data_dir)?;
     setup_auth_modal_window(app, webview_data_dir)?;
+    crate::window::tray::setup(app)?;
 
     Ok(window)
 }
@@ -274,16 +278,20 @@ pub fn sync_auth_modal_position(main: &Window) {
                     let _ = ui.set_size(tauri::LogicalSize::new(width, height));
                 }
                 if let Some(web) = modal.get_webview(AUTH_WEB_WEBVIEW_LABEL) {
-                    let _ = web.set_position(tauri::LogicalPosition::new(card_x, card_y + header_h));
+                    let _ =
+                        web.set_position(tauri::LogicalPosition::new(card_x, card_y + header_h));
                     let _ = web.set_size(tauri::LogicalSize::new(card_w, card_h - header_h));
                 }
-                let _ = main.app_handle().emit("auth://modal-layout", serde_json::json!({
-                    "cardX": card_x,
-                    "cardY": card_y,
-                    "cardW": card_w,
-                    "cardH": card_h,
-                    "headerH": header_h
-                }));
+                let _ = main.app_handle().emit(
+                    "auth://modal-layout",
+                    serde_json::json!({
+                        "cardX": card_x,
+                        "cardY": card_y,
+                        "cardW": card_w,
+                        "cardH": card_h,
+                        "headerH": header_h
+                    }),
+                );
             }
         }
     }
@@ -296,7 +304,11 @@ pub fn sync_auth_modal_position(main: &Window) {
 /// WebView2 environment is cached per data directory, so the profile (cookies,
 /// login, extensions) is preserved. `visible` restores the current visibility,
 /// which the caller tracks, because a new webview starts visible.
-pub fn reload_youtube(window: &Window, webview_data_dir: &Path, visible: bool) -> AppResult<()> {
+pub async fn reload_youtube(
+    window: &Window,
+    webview_data_dir: &Path,
+    visible: bool,
+) -> AppResult<()> {
     if let Some(existing) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
         let _ = existing.close();
     }
@@ -305,13 +317,13 @@ pub fn reload_youtube(window: &Window, webview_data_dir: &Path, visible: bool) -
     let mut last_error = None;
     for attempt in 0..10 {
         if attempt > 0 {
-            std::thread::sleep(Duration::from_millis(300));
+            tokio::time::sleep(Duration::from_millis(300)).await;
         }
 
         match add_youtube(window, webview_data_dir, theme.as_ref()) {
             Ok(()) => {
                 // A visible webview is shown by the page-load handler once the
-                // site is ready; hide it here only when the launcher is active.
+                // site begins rendering; hide it here only when the launcher is active.
                 if !visible {
                     if let Some(webview) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
                         let _ = webview.hide();
@@ -332,10 +344,63 @@ pub fn reload_youtube(window: &Window, webview_data_dir: &Path, visible: bool) -
 fn current_theme(window: &Window) -> Option<ResolvedTheme> {
     use crate::core::state::AppState;
 
-    let state = window.app_handle().try_state::<AppState>()?;
-    let settings = state.settings.read().ok()?.snapshot().theme;
     let system_dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
-    ThemeService::resolve(&settings, system_dark).ok()
+    let settings = window
+        .app_handle()
+        .try_state::<AppState>()
+        .and_then(|state| state.settings.read().ok().map(|store| store.snapshot().theme))
+        .unwrap_or_default();
+    ThemeService::resolve(&settings, system_dark)
+        .or_else(|_| ThemeService::resolve(&ThemeSettings::default(), system_dark))
+        .ok()
+}
+
+pub(crate) fn normalize_youtube_url(value: &str) -> Option<String> {
+    let mut url = tauri::Url::parse(value).ok()?;
+    let host = url.host_str()?.to_ascii_lowercase();
+    if url.scheme() != "https"
+        || (!host.ends_with(".youtube.com") && host != "youtube.com")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+
+    let path = url.path().to_ascii_lowercase();
+    if ["/logout", "/signin", "/sign_in", "/account", "/redirect"]
+        .iter()
+        .any(|blocked| path == *blocked || path.starts_with(&format!("{blocked}/")))
+    {
+        return None;
+    }
+
+    url.set_fragment(None);
+    Some(url.to_string())
+}
+
+fn startup_youtube_url(window: &Window) -> tauri::Url {
+    let default = YOUTUBE_URL.parse().expect("invalid YouTube URL");
+    let Some(state) = window
+        .app_handle()
+        .try_state::<crate::core::state::AppState>()
+    else {
+        return default;
+    };
+    let Ok(settings) = state.settings.read() else {
+        return default;
+    };
+    let settings = settings.snapshot();
+    if !settings.general.open_last_page {
+        return default;
+    }
+
+    settings
+        .general
+        .last_youtube_url
+        .as_deref()
+        .and_then(normalize_youtube_url)
+        .and_then(|url| tauri::Url::parse(&url).ok())
+        .unwrap_or(default)
 }
 
 fn add_youtube(
@@ -344,17 +409,13 @@ fn add_youtube(
     theme: Option<&ResolvedTheme>,
 ) -> AppResult<()> {
     if let Some(state) = window.app_handle().try_state::<AppState>() {
-        state.youtube_load_generation.fetch_add(1, Ordering::SeqCst);
         state
             .youtube_ready
             .store(false, std::sync::atomic::Ordering::SeqCst);
-        state
-            .youtube_loading
-            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     let (position, size) = youtube_bounds(window)?;
-    let url: tauri::Url = YOUTUBE_URL.parse().expect("invalid YouTube URL");
+    let url = startup_youtube_url(window);
 
     // The resolved theme is embedded in the initialization script: the script
     // runs before the page is parsed, so the transparent/themed stylesheet is
@@ -372,13 +433,21 @@ fn add_youtube(
         })
         .unwrap_or(false);
 
+    let config_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos().to_string())
+        .unwrap_or_else(|_| "0".to_string());
     let initial = theme
         .and_then(|theme| serde_json::to_string(theme).ok())
         .map(|json| format!("window.__ytdesktopInitialTheme = {json};\n"))
         .unwrap_or_default();
     let initial_masthead =
         format!("window.__ytdesktopInitialMastheadIntegrated = {masthead_integrated};\n");
-    let script = format!("{initial}{initial_masthead}{}", include_str!("../../../injected/theme.js"));
+    let script = format!(
+        "window.__ytdesktopConfigEpoch = \"{config_epoch}\";\n{initial}{initial_masthead}{}",
+        include_str!("../../../injected/theme.js")
+    );
+    let app_handle = window.app_handle().clone();
 
     let make = |with_extensions: bool| {
         let mut builder =
@@ -391,17 +460,37 @@ fn add_youtube(
                 // webview: WebView2 ignores it when `transparent(true)` is also
                 // set, and the site ended up painting an opaque surface.
                 .background_color(Color(0, 0, 0, 0))
+                .on_permission_request({
+                    let app = app_handle.clone();
+                    move |webview, kind| {
+                        if kind != PermissionKind::Microphone { return PermissionResponse::Default; }
+                        let youtube_host = webview.url().ok().and_then(|url| url.host_str().map(str::to_owned))
+                            .map(|host| host == "youtube.com" || host.ends_with(".youtube.com"))
+                            .unwrap_or(false);
+                        if !youtube_host { return PermissionResponse::Default; }
+                        let Some(state) = app.try_state::<AppState>() else { return PermissionResponse::Default; };
+                        let deadline = state.microphone_permission_until_ms.load(std::sync::atomic::Ordering::SeqCst);
+                        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                            .map(|duration| duration.as_millis() as u64).unwrap_or(u64::MAX);
+                        if deadline >= now && deadline != 0
+                            && state.microphone_permission_until_ms.compare_exchange(
+                                deadline, 0, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst
+                            ).is_ok() {
+                            PermissionResponse::Allow
+                        } else {
+                            PermissionResponse::Default
+                        }
+                    }
+                })
                 .initialization_script(script.clone())
+                // The observer reports a presented frame after the native
+                // webview becomes visible. PageLoad Finished nudges its check.
                 .initialization_script_for_all_frames(include_str!(
                     "../../../injected/observer.js"
                 ))
-                // YouTube rewrites its head styles during page loads. Re-apply
-                // the theme after the document is live so the transparent
-                // stylesheet stays the last one and the material shows through.
-                //
-                // The site also stays hidden until it finished loading, so the
-                // launcher can show a loading state instead of a blank or
-                // half-painted page.
+                // Theme and masthead CSS are installed synchronously by the
+                // initialization script. Only the first app startup uses the
+                // native loading handoff; later page navigations remain visible.
                 .on_page_load(|webview, payload| {
                     let app = webview.app_handle().clone();
 
@@ -411,70 +500,57 @@ fn add_youtube(
                                 let _ = webview.eval("location.href = 'https://www.youtube.com';");
                                 return;
                             }
-                            let ready = app
+                            let startup_loading = app
                                 .try_state::<AppState>()
-                                .map(|state| {
-                                    state.youtube_load_generation.fetch_add(1, Ordering::SeqCst);
-                                    state.youtube_ready.load(Ordering::SeqCst)
-                                })
+                                .map(|state| state.youtube_loading.load(Ordering::SeqCst))
                                 .unwrap_or_default();
-                            let _ = app.emit(crate::core::events::YOUTUBE_SURFACE_LOADING, true);
-                            if ready {
-                                set_loading(&app, false);
-                                let visible = app
-                                    .try_state::<AppState>()
-                                    .map(|state| state.youtube_visible.load(std::sync::atomic::Ordering::SeqCst))
-                                    .unwrap_or(true);
-                                if visible { let _ = webview.show(); }
-                            } else {
+                            if startup_loading {
                                 set_loading(&app, true);
-                                let _ = webview.hide();
+                                let _ = app.emit(crate::core::events::YOUTUBE_LOADING, true);
                             }
-                            let _ = app.emit(crate::core::events::YOUTUBE_LOADING, !ready);
+                            let visible = app
+                                .try_state::<AppState>()
+                                .map(|state| state.youtube_visible.load(Ordering::SeqCst))
+                                .unwrap_or(true);
+                            if visible { let _ = webview.show(); } else { let _ = webview.hide(); }
                         }
                         tauri::webview::PageLoadEvent::Finished => {
-                            let _ = webview.eval(
-                                "window.__ytdesktopReapplyTheme && window.__ytdesktopReapplyTheme();",
-                            );
-
-                            let masthead_integrated = app
-                                .try_state::<crate::core::state::AppState>()
-                                .and_then(|state| {
-                                    state.settings.read().ok().map(|store| {
-                                        store.snapshot().general.integrate_masthead
-                                    })
-                                })
+                            let is_youtube_page = payload
+                                .url()
+                                .host_str()
+                                .map(|host| host == "youtube.com" || host.ends_with(".youtube.com"))
                                 .unwrap_or(false);
-                            let _ = webview.eval(&format!(
-                                "window.__ytdesktopSetMastheadIntegrated && window.__ytdesktopSetMastheadIntegrated({masthead_integrated});"
-                            ));
-
-                            let visible = app
-                                .try_state::<crate::core::state::AppState>()
-                                .map(|state| {
-                                    state.youtube_visible.load(std::sync::atomic::Ordering::SeqCst)
-                                })
-                                .unwrap_or(true);
-
-                            if let Some(state) = app.try_state::<AppState>() {
-                                state.youtube_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+                            if !is_youtube_page {
+                                return;
                             }
 
+                            let _ = webview.eval(
+                                "if (window.__ytdesktopReportTitlebarIcons) window.__ytdesktopReportTitlebarIcons(); if (window.__ytdesktopRequestAuthSnapshot) window.__ytdesktopRequestAuthSnapshot();",
+                            );
+
+                            let (visible, initial_load) = app
+                                .try_state::<AppState>()
+                                .map(|state| {
+                                    (
+                                        state.youtube_visible.load(Ordering::SeqCst),
+                                        state.youtube_loading.load(Ordering::SeqCst)
+                                            && !state.youtube_ready.load(Ordering::SeqCst),
+                                    )
+                                })
+                                .unwrap_or((true, false));
                             if visible {
                                 let _ = webview.show();
+                            }
+                            if initial_load {
+                                let _ = webview.eval(
+                                    "window.__ytdesktopReportSurfacePainted && window.__ytdesktopReportSurfacePainted();",
+                                );
                             }
 
                             if let Some(w) = app.get_window(MAIN_WINDOW_LABEL) {
                                 let _ = layout_webviews(&w);
                             }
 
-                            if let Some(state) = app.try_state::<AppState>() {
-                                let generation = state.youtube_load_generation.load(Ordering::SeqCst);
-                                let initial = state.youtube_loading.load(Ordering::SeqCst);
-                                let _ = webview.eval(&format!(
-                                    "window.__ytdesktopWaitForSurface?.({generation}, {initial});"
-                                ));
-                            }
                         }
                     }
                 });
@@ -486,24 +562,26 @@ fn add_youtube(
         builder
     };
 
-    if window.add_child(make(true), position, size).is_err() {
+    let webview = match window.add_child(make(true), position, size) {
+        Ok(webview) => webview,
+        Err(_) => {
         // Some WebView2 runtimes cannot load browser extensions. Fall back to a
         // regular webview so the app still starts; extensions can be revisited
         // after a runtime update.
-        window.add_child(make(false), position, size)?;
-    }
+            window.add_child(make(false), position, size)?
+        }
+    };
+    #[cfg(windows)]
+    super::webview_popups::watch(window, &webview);
 
-    // Hidden until the first page finishes loading; the launcher shows its own
-    // loading state in the meantime.
-    if let Some(webview) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
-        let _ = webview.hide();
-    }
+    // Keep this webview rendering below the opaque launcher surface. Hiding it
+    // pauses animation frames on WebView2 and prevents a reliable first-paint
+    // handoff.
 
     Ok(())
 }
 
-/// Records whether the site is still loading, so the visibility command does
-/// not reveal a blank page.
+/// Records the startup-cover state shared with the launcher webview.
 fn set_loading(app: &tauri::AppHandle, loading: bool) {
     if let Some(state) = app.try_state::<crate::core::state::AppState>() {
         state
@@ -545,13 +623,62 @@ pub fn layout_webviews(window: &Window) -> AppResult<()> {
         ))?;
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        let elevated = window
+            .app_handle()
+            .try_state::<AppState>()
+            .map(|state| {
+                let ordering = std::sync::atomic::Ordering::SeqCst;
+                state.ui_elevated.load(ordering) || state.launcher_route_active.load(ordering)
+            })
+            .unwrap_or(false);
+        set_ui_webview_z_order(window, elevated)?;
+    }
+
+    Ok(())
+}
+
+/// The two WebViews are native siblings, so CSS z-index cannot order them.
+/// Raise the launcher for local pages or popups.
+#[cfg(target_os = "windows")]
+fn set_ui_webview_z_order(window: &Window, elevated: bool) -> AppResult<()> {
+    use std::ffi::c_void;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn SetWindowPos(
+            hwnd: *mut c_void,
+            insert_after: *mut c_void,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    if let Some(ui) = window.get_webview(UI_WEBVIEW_LABEL) {
+        ui.with_webview(move |platform| unsafe {
+            let mut hwnd = Default::default();
+            if platform.controller().ParentWindow(&mut hwnd).is_ok() {
+                let after = if elevated { std::ptr::null_mut() } else { 1usize as *mut c_void };
+                const KEEP_BOUNDS_AND_FOCUS: u32 = 0x0001 | 0x0002 | 0x0010 | 0x0200;
+                SetWindowPos(hwnd.0, after, 0, 0, 0, 0, KEEP_BOUNDS_AND_FOCUS);
+            }
+        })?;
+    }
     Ok(())
 }
 
 fn observe_window(window: &Window) {
     let handle = window.clone();
     window.on_window_event(move |event| match event {
-        WindowEvent::Resized(_) | WindowEvent::Moved(_) | WindowEvent::ScaleFactorChanged { .. } => {
+        #[cfg(windows)]
+        WindowEvent::Destroyed => super::webview_popups::unwatch(&handle),
+        WindowEvent::Resized(_)
+        | WindowEvent::Moved(_)
+        | WindowEvent::ScaleFactorChanged { .. } => {
             let _ = layout_webviews(&handle);
             remember_window_size(&handle);
             sync_auth_modal_position(&handle);
@@ -565,17 +692,38 @@ fn observe_window(window: &Window) {
         }
         WindowEvent::CloseRequested { .. } => {
             persist_window_state(&handle);
+            if let Some(state) = handle.app_handle().try_state::<AppState>() {
+                state.native_pip_active.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+            set_native_pip_taskbar(&handle.app_handle(), false);
+            if let Some(youtube) = handle.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+                let _ = youtube.eval("if (document.pictureInPictureElement) document.exitPictureInPicture().catch(()=>{});");
+            }
             // The mini player is part of this window: closing the app closes it
             // too, instead of leaving a floating picture behind.
             if let Some(pip) = handle.app_handle().get_webview_window(PIP_WINDOW_LABEL) {
                 let _ = pip.close();
             }
+            if let Some(tray) = handle.app_handle().tray_by_id(crate::window::tray::TRAY_ID) {
+                let _ = tray.set_visible(false);
+            }
+            // The menu and auth modal are separate hidden native windows. Exit
+            // explicitly so closing the main window cannot leave them alive.
+            handle.app_handle().exit(0);
         }
         WindowEvent::ThemeChanged(_) => {
             reapply_theme(&handle);
         }
-        WindowEvent::Focused(false) => request_pip_if_configured(&handle),
-        WindowEvent::Focused(true) => close_pip(&handle.app_handle()),
+        WindowEvent::Focused(false) => {
+            request_pip_if_configured(&handle);
+            crate::window::tray::defer_minimize_to_tray(&handle);
+        }
+        WindowEvent::Focused(true) => {
+            if let Some(tray) = handle.app_handle().tray_by_id(crate::window::tray::TRAY_ID) {
+                let _ = tray.set_visible(false);
+            }
+            close_pip(&handle.app_handle());
+        }
         _ => {}
     });
 }
@@ -644,11 +792,26 @@ fn pip_scale(app: &tauri::AppHandle) -> Result<f64, ()> {
 /// Closes the mini player when the main window is back in front and resumes the
 /// video it paused, so playback never stops on the way back to the app.
 pub fn close_pip(app: &tauri::AppHandle) {
-    let Some(pip) = app.get_webview_window(PIP_WINDOW_LABEL) else {
-        return;
-    };
+    let custom_pip_open = app.get_webview_window(PIP_WINDOW_LABEL).is_some();
+    if let Some(pip) = app.get_webview_window(PIP_WINDOW_LABEL) {
+        let _ = pip.close();
+    }
 
-    let _ = pip.close();
+    if let Some(state) = app.try_state::<AppState>() {
+        state
+            .native_pip_active
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+    set_native_pip_taskbar(app, false);
+    if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
+        if let Some(youtube) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+            let _ = youtube.eval("if (document.pictureInPictureElement) document.exitPictureInPicture().catch(()=>{});");
+        }
+    }
+
+    if !custom_pip_open {
+        return;
+    }
 
     if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
         if let Some(youtube) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
@@ -658,6 +821,182 @@ pub fn close_pip(app: &tauri::AppHandle) {
         }
     }
 }
+
+#[cfg(target_os = "windows")]
+pub fn set_native_pip_taskbar(app: &tauri::AppHandle, active: bool) {
+    use std::ffi::c_void;
+    use std::sync::{Mutex, OnceLock};
+
+    #[repr(C)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+    struct Context {
+        owner: isize,
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn EnumWindows(
+            callback: unsafe extern "system" fn(*mut c_void, isize) -> i32,
+            data: isize,
+        ) -> i32;
+        fn GetWindow(hwnd: *mut c_void, command: u32) -> *mut c_void;
+        fn GetAncestor(hwnd: *mut c_void, flags: u32) -> *mut c_void;
+        fn GetWindowRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+        fn GetClassNameW(hwnd: *mut c_void, name: *mut u16, max_count: i32) -> i32;
+        fn GetWindowTextW(hwnd: *mut c_void, text: *mut u16, max_count: i32) -> i32;
+        fn GetWindowLongPtrW(hwnd: *mut c_void, index: i32) -> isize;
+        fn SetWindowLongPtrW(hwnd: *mut c_void, index: i32, value: isize) -> isize;
+        fn SetWindowPos(
+            hwnd: *mut c_void,
+            after: *mut c_void,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    const GA_ROOTOWNER: u32 = 3;
+    const GW_OWNER: u32 = 4;
+    const GWL_EXSTYLE: i32 = -20;
+    const WS_EX_TOOLWINDOW: isize = 0x80;
+    const WS_EX_APPWINDOW: isize = 0x40000;
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SWP_NOOWNERZORDER: u32 = 0x0200;
+    const SWP_FRAMECHANGED: u32 = 0x0020;
+    static ORIGINAL_STYLES: OnceLock<Mutex<Vec<(isize, isize)>>> = OnceLock::new();
+    let originals = ORIGINAL_STYLES.get_or_init(|| Mutex::new(Vec::new()));
+
+    if !active {
+        if let Ok(mut saved) = originals.lock() {
+            for &(raw, style) in saved.iter() {
+                let hwnd = raw as *mut c_void;
+                unsafe {
+                    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style);
+                    SetWindowPos(
+                        hwnd,
+                        std::ptr::null_mut(),
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE
+                            | SWP_NOSIZE
+                            | SWP_NOACTIVATE
+                            | SWP_NOOWNERZORDER
+                            | SWP_FRAMECHANGED,
+                    );
+                }
+            }
+            saved.clear();
+        }
+        return;
+    }
+
+    let Some(owner) = app
+        .get_window(MAIN_WINDOW_LABEL)
+        .and_then(|window| window.hwnd().ok())
+    else {
+        return;
+    };
+    let mut context = Context {
+        owner: owner.0 as isize,
+    };
+    unsafe extern "system" fn update_window(raw: *mut c_void, data: isize) -> i32 {
+        let context = &mut *(data as *mut Context);
+        let owner = context.owner as *mut c_void;
+        let mut class = [0u16; 128];
+        let class_len = GetClassNameW(raw, class.as_mut_ptr(), class.len() as i32);
+        if class_len <= 0
+            || !String::from_utf16_lossy(&class[..class_len as usize])
+                .starts_with("Chrome_WidgetWin")
+        {
+            return 1;
+        }
+
+        let mut title = [0u16; 256];
+        let title_len = GetWindowTextW(raw, title.as_mut_ptr(), title.len() as i32);
+        let title = String::from_utf16_lossy(&title[..title_len.max(0) as usize]).to_lowercase();
+        let owned_by_app =
+            !GetWindow(raw, GW_OWNER).is_null() && GetAncestor(raw, GA_ROOTOWNER) == owner;
+        let picture_title =
+            title.contains("picture-in-picture") || title.contains("picture in picture");
+        if !owned_by_app && !picture_title {
+            return 1;
+        }
+        if title.contains("mini player")
+            || title == "menu"
+            || title == "login"
+            || title.contains("youtube client")
+        {
+            return 1;
+        }
+
+        let mut rect = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        if GetWindowRect(raw, &mut rect) == 0 {
+            return 1;
+        }
+        let width = (rect.right - rect.left).abs();
+        let height = (rect.bottom - rect.top).abs();
+        let ratio = width as f64 / height.max(1) as f64;
+        let video_shape = (220..=1100).contains(&width)
+            && (124..=760).contains(&height)
+            && (0.52..=2.35).contains(&ratio);
+        if !video_shape {
+            return 1;
+        }
+
+        if let Ok(mut saved) = ORIGINAL_STYLES
+            .get_or_init(|| Mutex::new(Vec::new()))
+            .lock()
+        {
+            let raw_value = raw as isize;
+            if !saved.iter().any(|(handle, _)| *handle == raw_value) {
+                let style = GetWindowLongPtrW(raw, GWL_EXSTYLE);
+                let adjusted = (style | WS_EX_TOOLWINDOW) & !WS_EX_APPWINDOW;
+                SetWindowLongPtrW(raw, GWL_EXSTYLE, adjusted);
+                if GetWindowLongPtrW(raw, GWL_EXSTYLE) != adjusted {
+                    return 1;
+                }
+                if SetWindowPos(
+                    raw,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+                ) != 0
+                {
+                    saved.push((raw_value, style));
+                } else {
+                    SetWindowLongPtrW(raw, GWL_EXSTYLE, style);
+                }
+            }
+        }
+        1
+    }
+
+    unsafe {
+        EnumWindows(update_window, &mut context as *mut Context as isize);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_native_pip_taskbar(_app: &tauri::AppHandle, _active: bool) {}
 
 /// Creates (or reveals) the mini player for the video that is playing.
 ///
@@ -679,13 +1018,9 @@ pub fn open_pip(app: &tauri::AppHandle) -> AppResult<()> {
                 let _ = youtube.eval(
                     r#"(async function() {
                         const v = document.querySelector('video');
-                        if (!v) return;
+                        if (!v || document.pictureInPictureElement) return;
                         try {
-                            if (document.pictureInPictureElement) {
-                                await document.exitPictureInPicture();
-                            } else {
-                                await v.requestPictureInPicture();
-                            }
+                            await v.requestPictureInPicture();
                         } catch (e) {
                             console.error('Native PiP error:', e);
                         }
@@ -768,7 +1103,7 @@ pub fn open_pip(app: &tauri::AppHandle) -> AppResult<()> {
     .resizable(true)
     .always_on_top(true)
     .skip_taskbar(true)
-    .focused(true)
+    .visible(false)
     .background_color(Color(0, 0, 0, 255))
     .initialization_script_for_all_frames(include_str!("../../../injected/pip-player.js"));
 
@@ -788,6 +1123,15 @@ pub fn open_pip(app: &tauri::AppHandle) -> AppResult<()> {
     lock_pip_aspect(&pip);
 
     remember_pip_geometry(app, &pip);
+    #[cfg(windows)]
+    if let (Some(main), Some(webview)) = (
+        app.get_window(MAIN_WINDOW_LABEL),
+        app.get_webview(PIP_WINDOW_LABEL),
+    ) {
+        super::webview_popups::watch(&main, &webview);
+    }
+    pip.show()?;
+    let _ = pip.set_focus();
 
     // The mini player takes over playback so the same audio never plays twice.
     if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
@@ -869,13 +1213,12 @@ fn lock_pip_aspect(pip: &tauri::WebviewWindow) {
         }
 
         let ratio = current_pip_aspect_ratio();
-        let (target_width, target_height) = if (width - last_width).abs()
-            >= (height - last_height).abs()
-        {
-            (width, width / ratio)
-        } else {
-            (height * ratio, height)
-        };
+        let (target_width, target_height) =
+            if (width - last_width).abs() >= (height - last_height).abs() {
+                (width, width / ratio)
+            } else {
+                (height * ratio, height)
+            };
 
         *last = (target_width, target_height);
         let _ = handle.set_size(tauri::LogicalSize::new(target_width, target_height));
@@ -934,15 +1277,23 @@ fn restored_pip_position(
 /// moving the window does not rewrite the settings file on every event.
 fn schedule_pip_save(app: &tauri::AppHandle) {
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, OnceLock};
 
     static GENERATION: AtomicU64 = AtomicU64::new(0);
+    static SAVE_TIMER: OnceLock<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>> =
+        OnceLock::new();
 
+    let Ok(mut timer) = SAVE_TIMER.get_or_init(|| Mutex::new(None)).lock() else {
+        return;
+    };
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    if let Some(previous) = timer.take() {
+        previous.abort();
+    }
     let handle = app.clone();
 
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(420));
-
+    *timer = Some(tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(420)).await;
         if GENERATION.load(Ordering::SeqCst) != generation {
             return;
         }
@@ -957,7 +1308,7 @@ fn schedule_pip_save(app: &tauri::AppHandle) {
 
         let next = store.snapshot();
         let _ = store.replace(next);
-    });
+    }));
 }
 
 /// Opens the mini player when the window is minimized or loses focus, if the
@@ -985,10 +1336,10 @@ fn request_pip_if_configured(window: &Window) {
     }
 
     let handle = window.clone();
-    std::thread::spawn(move || {
+    tauri::async_runtime::spawn(async move {
         // Focus moves before the window state settles; wait a moment so a
         // minimize is recognized as such.
-        std::thread::sleep(Duration::from_millis(260));
+        tokio::time::sleep(Duration::from_millis(260)).await;
 
         if matches!(handle.app_handle().get_webview_window("pip"), Some(pip) if pip.is_focused().unwrap_or(false))
         {

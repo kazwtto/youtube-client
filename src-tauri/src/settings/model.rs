@@ -4,13 +4,15 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::core::error::AppResult;
-use crate::rpc::model::{RpcSettings, DEFAULT_APP_ID};
+use crate::rpc::model::{RpcSettings, DEFAULT_APP_ID, DEFAULT_MUSIC_APP_ID};
 use crate::theme::model::ThemeSettings;
 
 /// Settings persisted in `settings.json`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
+    #[serde(default = "legacy_settings_version")]
+    pub settings_version: u16,
     pub window: WindowSettings,
     pub pip: PipWindowSettings,
     pub theme: ThemeSettings,
@@ -20,11 +22,32 @@ pub struct AppSettings {
     pub general: GeneralSettings,
 }
 
+const CURRENT_SETTINGS_VERSION: u16 = 1;
+
+fn legacy_settings_version() -> u16 {
+    0
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            settings_version: CURRENT_SETTINGS_VERSION,
+            window: WindowSettings::default(),
+            pip: PipWindowSettings::default(),
+            theme: ThemeSettings::default(),
+            rpc: RpcSettings::default(),
+            history: HistorySettings::default(),
+            extensions: ExtensionSettings::default(),
+            general: GeneralSettings::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PipMode {
-    #[default]
     Custom,
+    #[default]
     Native,
 }
 
@@ -44,7 +67,7 @@ impl Default for PipWindowSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            mode: PipMode::Custom,
+            mode: PipMode::Native,
             width: 480.0,
             height: 270.0,
             x: None,
@@ -107,10 +130,12 @@ pub struct ExtensionSettings {
 #[serde(rename_all = "camelCase")]
 pub enum TitlebarStyle {
     /// Text tabs with an underline, like YouTube.
-    #[default]
     Tabs,
     /// Round icon buttons.
+    #[default]
     Icons,
+    /// A single menu button that lists all sections.
+    Compact,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -119,12 +144,18 @@ pub struct GeneralSettings {
     pub language: String,
     pub hardware_acceleration: bool,
     pub titlebar_style: TitlebarStyle,
+    /// Hides the main window in the notification area when minimized.
+    pub minimize_to_tray: bool,
     /// Opens the mini player when the window is minimized.
     pub pip_on_minimize: bool,
     /// Opens the mini player when the window loses focus.
     pub pip_on_blur: bool,
     /// Hides YouTube's masthead and integrates guide, search, and auth into the titlebar.
     pub integrate_masthead: bool,
+    /// Reopens the most recent YouTube page on the next launch.
+    pub open_last_page: bool,
+    /// Last safe YouTube URL, stored independently from visible settings.
+    pub last_youtube_url: Option<String>,
 }
 
 impl Default for GeneralSettings {
@@ -132,10 +163,13 @@ impl Default for GeneralSettings {
         Self {
             language: "en".to_string(),
             hardware_acceleration: true,
-            titlebar_style: TitlebarStyle::Tabs,
+            titlebar_style: TitlebarStyle::Icons,
+            minimize_to_tray: false,
             pip_on_minimize: true,
             pip_on_blur: false,
-            integrate_masthead: true,
+            integrate_masthead: false,
+            open_last_page: true,
+            last_youtube_url: None,
         }
     }
 }
@@ -157,12 +191,26 @@ impl SettingsStore {
             AppSettings::default()
         };
 
-        // The Discord application is part of the app, not a user preference:
-        // always use the built-in identifier, even if an older settings file
-        // stored an empty or different one.
-        current.rpc.app_id = DEFAULT_APP_ID.to_string();
+        let migrated = current.settings_version < CURRENT_SETTINGS_VERSION;
+        if migrated {
+            // Custom was the former default; new installs and legacy profiles
+            // now start with the built-in native player.
+            if current.pip.mode == PipMode::Custom {
+                current.pip.mode = PipMode::Native;
+            }
+            current.settings_version = CURRENT_SETTINGS_VERSION;
+        }
 
-        Ok(Self { path, current })
+        // These applications and their assets are part of the integration, not
+        // user preferences. Ignore identifiers left by older settings files.
+        current.rpc.app_id = DEFAULT_APP_ID.to_string();
+        current.rpc.music_app_id = DEFAULT_MUSIC_APP_ID.to_string();
+
+        let store = Self { path, current };
+        if migrated {
+            store.save()?;
+        }
+        Ok(store)
     }
 
     pub fn snapshot(&self) -> AppSettings {
@@ -189,10 +237,21 @@ impl SettingsStore {
         self.current.pip.height = height.max(180.0);
     }
 
-    pub fn replace(&mut self, next: AppSettings) -> AppResult<AppSettings> {
+    pub fn replace(&mut self, mut next: AppSettings) -> AppResult<AppSettings> {
+        next.settings_version = CURRENT_SETTINGS_VERSION;
+        next.rpc.app_id = DEFAULT_APP_ID.to_string();
+        next.rpc.music_app_id = DEFAULT_MUSIC_APP_ID.to_string();
         self.current = next;
         self.save()?;
         Ok(self.current.clone())
+    }
+
+    pub fn remember_youtube_url(&mut self, url: String) -> AppResult<()> {
+        if self.current.general.last_youtube_url.as_deref() == Some(&url) {
+            return Ok(());
+        }
+        self.current.general.last_youtube_url = Some(url);
+        self.save()
     }
 
     fn save(&self) -> AppResult<()> {

@@ -11,15 +11,13 @@ pub fn build(
 ) -> BTreeMap<String, String> {
     let mut tokens = BTreeMap::new();
 
-    // With the Solid backdrop there is no material behind the window, so the
-    // page background must be fully opaque. The translucent palette color is
-    // only correct over Mica/Acrylic.
-    let background = if settings.backdrop == Backdrop::Solid {
-        palette.bg_solid
-    } else {
-        palette.bg
+    // Mica uses a denser tint than Acrylic so content remains easy to read.
+    let background = match settings.backdrop {
+        Backdrop::Solid => palette.bg_solid.to_string(),
+        Backdrop::Mica => with_opacity(palette.bg, if effective_dark { 0.84 } else { 0.88 }),
+        Backdrop::Acrylic => palette.bg.to_string(),
     };
-    tokens.insert("--color-bg".into(), background.into());
+    tokens.insert("--color-bg".into(), background);
     tokens.insert("--color-bg-elevated".into(), palette.bg_elevated.into());
     tokens.insert("--color-bg-solid".into(), palette.bg_solid.into());
     tokens.insert("--color-fg".into(), palette.fg.into());
@@ -62,6 +60,22 @@ pub fn build(
     );
 
     tokens
+}
+
+fn with_opacity(color: &str, opacity: f64) -> String {
+    let Some(channels) = color
+        .trim()
+        .strip_prefix("rgba(")
+        .and_then(|value| value.strip_suffix(')'))
+    else {
+        return color.to_string();
+    };
+    let mut channels = channels.split(',').map(str::trim);
+    let (Some(red), Some(green), Some(blue)) = (channels.next(), channels.next(), channels.next())
+    else {
+        return color.to_string();
+    };
+    format!("rgba({red}, {green}, {blue}, {opacity})")
 }
 
 /// Chooses black or white as the text color over the accent color.

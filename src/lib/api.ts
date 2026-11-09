@@ -10,6 +10,7 @@ export interface ThemeSettings {
   accent: string;
   radius: number;
   motion: boolean;
+  hideScrollbars: boolean;
 }
 
 export interface RpcSettings {
@@ -32,15 +33,18 @@ export interface ExtensionSettings {
   disabled: string[];
 }
 
-export type TitlebarStyle = "tabs" | "icons";
+export type TitlebarStyle = "tabs" | "icons" | "compact";
 
 export interface GeneralSettings {
   language: string;
   hardwareAcceleration: boolean;
   titlebarStyle: TitlebarStyle;
+  minimizeToTray: boolean;
   pipOnMinimize: boolean;
   pipOnBlur: boolean;
   integrateMasthead: boolean;
+  openLastPage: boolean;
+  lastYoutubeUrl: string | null;
 }
 
 export interface AuthSnapshot {
@@ -48,6 +52,27 @@ export interface AuthSnapshot {
   avatarUrl?: string | null;
   displayName?: string | null;
   handle?: string | null;
+}
+
+export interface YoutubeTitlebarIcons {
+  search?: string;
+  voice?: string;
+  clear?: string;
+  guide?: string;
+  account?: string;
+  history?: string;
+}
+
+export interface BrowserHistoryImportResult {
+  browserName: string;
+  imported: number;
+}
+
+export interface BrowserDataSource {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  hasYoutubeHistory: boolean;
 }
 
 export interface WindowSettings {
@@ -68,6 +93,7 @@ export interface PipSettings {
 }
 
 export interface AppSettings {
+  settingsVersion: number;
   window: WindowSettings;
   pip: PipSettings;
   theme: ThemeSettings;
@@ -85,6 +111,7 @@ export interface ResolvedTheme {
   backdrop: Backdrop;
   accent: string;
   motion: boolean;
+  hideScrollbars: boolean;
   tokens: Record<string, string>;
 }
 
@@ -112,6 +139,8 @@ export interface HistoryEntry {
   channel: string;
   durationSecs: number | null;
   thumbnailPath: string | null;
+  positionSecs: number | null;
+  watchedSecs: number | null;
   lastWatchedAt: number;
   watchCount: number;
 }
@@ -145,8 +174,13 @@ export const api = {
   setWebviewVisible: (label: string, visible: boolean): Promise<void> =>
     invoke<void>("set_webview_visible", { label, visible }),
 
+  setLauncherRouteActive: (active: boolean): Promise<void> =>
+    invoke<void>("set_launcher_route_active", { active }),
+
   ytNavigate: (action: NavigationAction): Promise<void> =>
     invoke<void>("yt_navigate", { action }),
+
+  youtubeLoadingState: (): Promise<boolean> => invoke<boolean>("youtube_loading_state"),
 
   ytPlayVideo: (videoId: string): Promise<void> =>
     invoke<void>("yt_play_video", { videoId }),
@@ -159,7 +193,6 @@ export const api = {
 
   themeGet: (): Promise<ResolvedTheme> => invoke<ResolvedTheme>("theme_get"),
 
-  youtubeLoadingState: (): Promise<boolean> => invoke<boolean>("youtube_loading_state"),
   settingsGet: (): Promise<AppSettings> => invoke<AppSettings>("settings_get"),
 
   settingsUpdate: (settings: AppSettings): Promise<AppSettings> =>
@@ -167,6 +200,9 @@ export const api = {
 
   extensionsList: (): Promise<ExtensionSummary[]> =>
     invoke<ExtensionSummary[]>("extensions_list"),
+
+  extensionsRefresh: (): Promise<ExtensionSummary[]> =>
+    invoke<ExtensionSummary[]>("extensions_refresh"),
 
   extensionsInstall: (source: string): Promise<ExtensionSummary[]> =>
     invoke<ExtensionSummary[]>("extensions_install", { source }),
@@ -186,8 +222,21 @@ export const api = {
 
   historyDelete: (id: string): Promise<void> => invoke<void>("history_delete", { id }),
 
+  browserDataSources: (): Promise<BrowserDataSource[]> =>
+    invoke<BrowserDataSource[]>("browser_data_sources"),
+
+  browserHistoryImport: (browserId: string): Promise<BrowserHistoryImportResult> =>
+    invoke<BrowserHistoryImportResult>("browser_history_import", { browserId }),
+
+  openRepository: (): Promise<void> => invoke<void>("open_repository"),
+
   setMastheadIntegrated: (integrated: boolean): Promise<void> =>
     invoke<void>("set_masthead_integrated", { integrated }),
+
+  requestAuthSnapshot: (): Promise<void> => invoke<void>("request_auth_snapshot"),
+
+  requestYoutubeTitlebarIcons: (): Promise<void> =>
+    invoke<void>("request_youtube_titlebar_icons"),
 
   setUiElevation: (elevated: boolean): Promise<void> =>
     invoke<void>("set_ui_elevation", { elevated }),
@@ -201,6 +250,8 @@ export const api = {
     width?: number;
     height?: number;
     auth: AuthSnapshot;
+    mode?: "account" | "sections";
+    activeRoute?: string;
   }): Promise<void> => invoke<void>("show_context_menu", { args }),
 
   hideContextMenu: (): Promise<void> => invoke<void>("hide_context_menu"),

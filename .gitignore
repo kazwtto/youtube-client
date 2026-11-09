@@ -1,3 +1,6 @@
+# SubProject
+discord-viewer/
+
 # Dependencies
 node_modules/
 .pnp
@@ -8,6 +11,7 @@ dist/
 dist-ssr/
 build/
 *.tsbuildinfo
+release-portable/
 
 # Rust / Tauri
 target/
@@ -57,9 +61,9 @@ extensions/*
 *.tmp
 *.bak
 
-# Local research and conversation exports stay outside source control
+# Local planning and scratch data
 planning/
-docs/PLANO-MIGRACAO-SOLIDJS.md
-docs/RELATORIO-REVISAO-MIGRACAO-SOLIDJS.md
-thread-*.md
 .cloud-attachments/
+backups/
+backup_before_*/
+pre-solidjs-*.bak/

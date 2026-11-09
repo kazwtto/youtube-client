@@ -24,8 +24,46 @@
   ].join(",");
 
   const CONTROLS_ID = "ytdesktop-pip-controls";
+  const STYLE_ID = "ytdesktop-pip-player-style";
 
   const SOURCE = "ytdesktop-pip";
+  let pendingAccent = null;
+  let documentRootObserver = null;
+
+  function applyAccent(accent) {
+    const root = document.documentElement;
+    if (root) {
+      if (documentRootObserver) {
+        documentRootObserver.disconnect();
+        documentRootObserver = null;
+      }
+      pendingAccent = null;
+      root.style.setProperty("--ytdesktop-pip-accent", accent);
+      return;
+    }
+
+    pendingAccent = accent;
+    if (documentRootObserver) return;
+    documentRootObserver = new MutationObserver(() => {
+      const nextRoot = document.documentElement;
+      if (!nextRoot) return;
+      nextRoot.style.setProperty("--ytdesktop-pip-accent", pendingAccent);
+      documentRootObserver.disconnect();
+      documentRootObserver = null;
+      pendingAccent = null;
+    });
+    documentRootObserver.observe(document, { childList: true });
+  }
+
+  window.addEventListener("message", function (event) {
+    const data = event.data;
+    if (event.source !== window.parent || !data || data.source !== SOURCE || data.action !== "theme") {
+      return;
+    }
+    if (typeof data.accent === "string" && /^#[\da-f]{6}$/i.test(data.accent)) {
+      applyAccent(data.accent);
+    }
+  });
 
   const CSS =
     "#" +
@@ -36,10 +74,10 @@
     " button{display:grid;place-items:center;box-sizing:border-box;width:var(--pip-button,28px);height:var(--pip-button,28px);margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:#fff;cursor:pointer;transition:background 140ms ease-out;-webkit-appearance:none}" +
     "#" +
     CONTROLS_ID +
-    " button:hover{background:rgba(255,255,255,.18)}" +
+    " button:hover{background:color-mix(in srgb,var(--ytdesktop-pip-accent,#ff0033) 34%,transparent)}" +
     "#" +
     CONTROLS_ID +
-    " button:active{background:rgba(255,255,255,.3)}" +
+    " button:active{background:color-mix(in srgb,var(--ytdesktop-pip-accent,#ff0033) 52%,transparent)}" +
     "#" +
     CONTROLS_ID +
     " .ytdesktop-close:hover{background:#d93025}" +
@@ -72,6 +110,10 @@
     "#" +
     CONTROLS_ID +
     " .ytdesktop-g-restore::before{content:\"\";position:absolute;left:0;top:2px;width:100%;height:2px;background:currentColor}" +
+    "html{--ytdesktop-pip-accent:#ff0033}" +
+    "#movie_player{--ytp-progress-bar-color:var(--ytdesktop-pip-accent)}" +
+    "#movie_player .ytp-play-progress{background:var(--ytdesktop-pip-accent)!important}" +
+    "#movie_player .ytp-scrubber-button{background-color:var(--ytdesktop-pip-accent)!important}" +
     /* Smooth overlay transitions and quick autohide */
     "#player-controls, .ytPlayerControlsContainerHost, .ytp-chrome-bottom, .ytp-chrome-top, .ytp-gradient-bottom, .ytp-gradient-top {" +
     "  transition: opacity 160ms ease-out, visibility 160ms ease-out !important;" +
@@ -86,6 +128,51 @@
     "  visibility: hidden !important;" +
     "  pointer-events: none !important;" +
     "}";
+
+  let styleHostObserver = null;
+  let styleRelocationObserver = null;
+
+  function installStyles() {
+    let style = document.getElementById(STYLE_ID);
+    if (!style) {
+      style = document.createElement("style");
+      style.id = STYLE_ID;
+      style.textContent = CSS;
+    }
+
+    const parent = document.head || document.documentElement;
+    if (!parent) return false;
+    if (style.parentNode !== parent) parent.appendChild(style);
+
+    if (parent === document.documentElement && !document.head && !styleRelocationObserver) {
+      styleRelocationObserver = new MutationObserver(() => {
+        if (!document.head) return;
+        document.head.appendChild(style);
+        styleRelocationObserver.disconnect();
+        styleRelocationObserver = null;
+      });
+      styleRelocationObserver.observe(document.documentElement, { childList: true });
+    }
+
+    return true;
+  }
+
+  function installStylesAtDocumentStart() {
+    if (installStyles()) {
+      if (styleHostObserver) {
+        styleHostObserver.disconnect();
+        styleHostObserver = null;
+      }
+      return;
+    }
+    if (styleHostObserver) return;
+    styleHostObserver = new MutationObserver(() => {
+      if (!installStyles()) return;
+      styleHostObserver.disconnect();
+      styleHostObserver = null;
+    });
+    styleHostObserver.observe(document, { childList: true });
+  }
 
   function send(action, data) {
     try {
@@ -416,9 +503,7 @@
   }
 
   function start() {
-    const style = document.createElement("style");
-    style.textContent = CSS;
-    (document.head || document.documentElement).appendChild(style);
+    installStylesAtDocumentStart();
 
     watchDrag();
     setupAutohide();
@@ -453,7 +538,7 @@
       video.addEventListener("play", reportRatio);
     }
 
-    new MutationObserver(schedule).observe(document.documentElement, {
+    new MutationObserver(schedule).observe(document, {
       childList: true,
       subtree: true,
     });
@@ -461,9 +546,8 @@
     window.addEventListener("resize", schedule);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", start);
-  } else {
-    start();
-  }
+  // Install CSS and observers at document start. No DOMContentLoaded wait:
+  // the native PiP loading cover remains over the frame until it loads.
+  installStylesAtDocumentStart();
+  start();
 })();

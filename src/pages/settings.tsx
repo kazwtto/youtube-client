@@ -1,3 +1,4 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { For, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 
@@ -100,14 +101,24 @@ function SettingsPage(props: SettingsPageProps) {
       return;
     }
 
-    const next = collect();
+    const collected = collect();
     // `input` and `change` can both fire for the same edit; skip a save that
     // would not change anything so the theme is not re-applied twice.
-    if (JSON.stringify(next) === JSON.stringify(current())) return;
+    if (JSON.stringify(collected) === JSON.stringify(current())) return;
 
     const savedVersion = editVersion;
     saving = true;
     try {
+      // Merge only the sections owned by this page onto the latest persisted
+      // settings so edits from other pages (e.g. RPC, Extensions) are never rolled back.
+      const latest = await api.settingsGet().catch(() => current());
+      const next: AppSettings = {
+        ...latest,
+        theme: collected.theme,
+        history: collected.history,
+        pip: collected.pip,
+        general: collected.general,
+      };
       const saved = await api.settingsUpdate(next);
       if (editVersion === savedVersion) {
         setCurrent(saved);
@@ -177,7 +188,12 @@ function SettingsPage(props: SettingsPageProps) {
     return 0;
   };
 
+  let disposed = false;
+  let unlistenSettings: UnlistenFn | undefined;
+
   onCleanup(() => {
+    disposed = true;
+    unlistenSettings?.();
     if (timer !== undefined) window.clearTimeout(timer);
     for (const animationTimer of panelAnimationTimers.values()) window.clearTimeout(animationTimer);
     panelAnimationTimers.clear();
@@ -189,6 +205,16 @@ function SettingsPage(props: SettingsPageProps) {
       setHorizontalTabs(media.matches);
     };
     media.addEventListener("change", updateOrientation);
+    void listen<AppSettings>("settings://changed", (event) => {
+      if (saving || timer !== undefined) return;
+      setCurrent(event.payload);
+      setRadius(event.payload.theme.radius);
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlistenSettings = stop;
+      })
+      .catch(() => undefined);
     onCleanup(() => media.removeEventListener("change", updateOrientation));
   });
 

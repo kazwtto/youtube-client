@@ -21,7 +21,8 @@
   --radius-lg: 12px;
 
   --motion-fast: 140ms;
-  --motion-normal: 140ms;
+  --motion-normal: 200ms;
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
 
   --font-family: "Roboto", "Segoe UI", Arial, sans-serif;
   --font-size-base: 14px;

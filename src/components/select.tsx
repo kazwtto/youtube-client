@@ -44,6 +44,7 @@ export function Select(props: SelectProps) {
     setSelected(nativeSelect.value);
   };
   createEffect(() => {
+    props.options();
     nativeSelect.value = props.value();
     syncFromNative();
   });
@@ -145,7 +146,7 @@ export function Select(props: SelectProps) {
       </div>
       <Portal>
         <div
-          class="yt-dropdown__menu"
+          class="yt-menu yt-dropdown__menu"
           classList={{ "is-open": open(), "is-above": openAbove() }}
           id={menuId}
           role="listbox"
@@ -176,7 +177,7 @@ export function Select(props: SelectProps) {
             {(option) => (
               <button
                 type="button"
-                class="yt-dropdown__option"
+                class="yt-menu__item yt-dropdown__option"
                 classList={{ "is-selected": selected() === option.value }}
                 role="option"
                 aria-selected={selected() === option.value}

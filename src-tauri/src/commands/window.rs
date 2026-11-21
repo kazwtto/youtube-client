@@ -346,18 +346,31 @@ pub fn yt_navigate(window: Window, state: State<'_, AppState>, action: String) -
                 r#"
                 (function() {{
                     var q = decodeURIComponent('{query}');
-                    var box = document.querySelector('ytd-searchbox');
-                    var input = document.querySelector('input#search');
-                    if (box && input) {{
+                    var app = document.querySelector('ytd-app');
+                    if (app && typeof app.fire === 'function') {{
+                        app.fire('yt-navigate', {{
+                            endpoint: {{
+                                commandMetadata: {{
+                                    webCommandMetadata: {{
+                                        url: '/results?search_query=' + encodeURIComponent(q),
+                                        webPageType: 'WEB_PAGE_TYPE_SEARCH',
+                                        rootVe: 4724
+                                    }}
+                                }},
+                                searchEndpoint: {{ query: q }}
+                            }}
+                        }});
+                        return;
+                    }}
+                    var input = document.querySelector('.ytSearchboxComponentInput, yt-searchbox input[name="search_query"], ytd-searchbox input#search, input#search');
+                    var form = input && (input.closest('form') || document.querySelector('#search-form, .ytSearchboxComponentSearchForm'));
+                    if (input && form) {{
                         input.value = q;
                         input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        var form = box.querySelector('#search-form');
-                        if (form) {{
-                            form.dispatchEvent(new Event('submit', {{ bubbles: true, cancelable: true }}));
-                            return;
-                        }}
+                        form.dispatchEvent(new Event('submit', {{ bubbles: true, cancelable: true }}));
+                        return;
                     }}
-                    location.href = 'https://www.youtube.com/results?search_query={query}';
+                    location.href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q);
                 }})()
                 "#
             )
@@ -453,6 +466,10 @@ pub fn youtube_surface_painted(window: Window, state: State<'_, AppState>) -> Ap
 /// Tracks native PiP lifecycle from the YouTube document.
 #[tauri::command]
 pub fn set_native_pip_active(app: AppHandle, state: State<'_, AppState>, active: bool) {
+    #[cfg(windows)]
+    if active {
+        crate::window::webview_popups::clear_native_pip_minimized();
+    }
     state.native_pip_active.store(active, Ordering::SeqCst);
     crate::window::layout::set_native_pip_taskbar(&app, active);
     if active {
@@ -475,6 +492,13 @@ pub fn set_native_pip_active(app: AppHandle, state: State<'_, AppState>, active:
 /// Restores the app and its YouTube page when native PiP asks to return to its opener.
 #[tauri::command]
 pub fn native_pip_return(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    #[cfg(windows)]
+    if crate::window::webview_popups::take_native_pip_minimized() {
+        state.native_pip_active.store(false, Ordering::SeqCst);
+        crate::window::layout::set_native_pip_taskbar(&app, false);
+        return Ok(());
+    }
+
     state.native_pip_active.store(false, Ordering::SeqCst);
     crate::window::layout::set_native_pip_taskbar(&app, false);
 
@@ -546,57 +570,40 @@ pub fn youtube_titlebar_icons_snapshot(
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ShowContextMenuArgs {
-    pub x: f64,
-    pub y: f64,
-    pub width: Option<f64>,
-    pub height: Option<f64>,
-    pub auth: AuthSnapshot,
-    #[serde(default)]
-    pub mode: Option<String>,
-    #[serde(default)]
-    pub active_route: Option<String>,
+pub struct YoutubeNavState {
+    pub can_go_back: bool,
+    pub can_go_forward: bool,
 }
 
-/// Positions and displays the native popover context menu window.
 #[tauri::command]
-pub fn show_context_menu(app: tauri::AppHandle, args: ShowContextMenuArgs) -> AppResult<()> {
-    if let Some(menu) = app.get_webview_window(crate::window::layout::MENU_WINDOW_LABEL) {
-        if let (Some(w), Some(h)) = (args.width, args.height) {
-            let _ = menu.set_size(tauri::LogicalSize::new(w, h));
-        }
-        let _ = app.emit(
-            "menu://data",
-            serde_json::json!({
-                "auth": args.auth,
-                "mode": args.mode.unwrap_or_else(|| "account".into()),
-                "activeRoute": args.active_route,
-            }),
-        );
-        let _ = menu.set_position(tauri::LogicalPosition::new(args.x, args.y));
-        let _ = menu.show();
-        let _ = menu.set_focus();
-    }
+pub fn youtube_nav_state(
+    window: Window,
+    can_go_back: bool,
+    can_go_forward: bool,
+) -> AppResult<()> {
+    let _ = window.app_handle().emit(
+        "youtube://nav-state",
+        YoutubeNavState {
+            can_go_back,
+            can_go_forward,
+        },
+    );
     Ok(())
 }
 
-/// Hides the native popover context menu window.
 #[tauri::command]
-pub fn hide_context_menu(app: tauri::AppHandle) -> AppResult<()> {
-    if let Some(menu) = app.get_webview_window(crate::window::layout::MENU_WINDOW_LABEL) {
-        let _ = menu.hide();
-        let _ = app.emit("menu://closed", ());
-    }
+pub fn request_youtube_nav_state(window: Window) -> AppResult<()> {
+    let webview = window
+        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+        .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
+    webview.eval("window.__ytdesktopReportNavState && window.__ytdesktopReportNavState();")?;
     Ok(())
 }
 
-/// Checks whether the native context menu window is currently visible.
 #[tauri::command]
-pub fn is_context_menu_visible(app: tauri::AppHandle) -> AppResult<bool> {
-    if let Some(menu) = app.get_webview_window(crate::window::layout::MENU_WINDOW_LABEL) {
-        return Ok(menu.is_visible().unwrap_or(false));
-    }
-    Ok(false)
+pub fn youtube_voice_state(window: Window, active: bool) -> AppResult<()> {
+    let _ = window.app_handle().emit("youtube://voice-state", active);
+    Ok(())
 }
 
 /// Opens the centered Google login modal over the main application.

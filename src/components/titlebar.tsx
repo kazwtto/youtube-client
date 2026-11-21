@@ -1,13 +1,17 @@
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { render } from "solid-js/web";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { autoUpdate, computePosition, flip, offset, shift, size } from "@floating-ui/dom";
+import type { AnimationPlaybackControlsWithThen } from "motion";
 
 import type { RouteId } from "../app/router";
 import { APP_SECTIONS, type AppSection } from "../app/navigation";
 import { t, type TranslationKey } from "../i18n";
-import { api, type AuthSnapshot, type RpcStatus, type TitlebarStyle, type YoutubeTitlebarIcons } from "../lib/api";
-import { Icon, type IconName } from "./icons";
+import { api, type AuthSnapshot, type RpcStatus, type TitlebarStyle, type YoutubeNavState, type YoutubeTitlebarIcons } from "../lib/api";
+import { animateFadeScaleIn, animateMotion, isMotionEnabled, playElementMotion, stopElementMotion } from "../lib/motion";
+import { FloatingMenu } from "./floating-menu";
+import { Icon, type IconName, type YoutubeIconName } from "./icons";
 
 export interface TitlebarActions {
   /// Navigates the local interface to a route.
@@ -84,6 +88,20 @@ interface TitlebarState {
   setIcons: (value: YoutubeTitlebarIcons) => void;
 }
 
+type NavLayout = "tabs" | "icons" | "menu";
+type TitlebarMenuKind = "account" | "sections" | null;
+
+const ACCOUNT_ITEMS: Array<[string, TranslationKey, YoutubeIconName | IconName]> = [
+  ["channel", "menu.channel", "account"],
+  ["studio", "menu.studio", "studio"],
+  ["switch-account", "menu.switchAccount", "switch-account"],
+  ["logout", "menu.signOut", "logout"],
+  ["purchases", "menu.purchases", "purchases"],
+  ["your-data", "menu.yourData", "your-data"],
+  ["shortcuts", "menu.shortcuts", "shortcuts"],
+  ["settings-app", "menu.appSettings", "settings"],
+];
+
 function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; state: TitlebarState }) {
   const { state } = props;
   const [query, setQuery] = createSignal("");
@@ -91,25 +109,66 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
   const [selectedIndex, setSelectedIndex] = createSignal(-1);
   const [maximized, setMaximized] = createSignal(false);
   const [avatarFailed, setAvatarFailed] = createSignal(false);
-  const [sectionsMenuOpen, setSectionsMenuOpen] = createSignal(false);
+  const [menuAvatarFailed, setMenuAvatarFailed] = createSignal(false);
+  const [activeMenu, setActiveMenu] = createSignal<TitlebarMenuKind>(null);
+  const [canGoBack, setCanGoBack] = createSignal(false);
+  const [canGoForward, setCanGoForward] = createSignal(false);
+  const [voiceActive, setVoiceActive] = createSignal(false);
+  const [barWidth, setBarWidth] = createSignal(
+    typeof window !== "undefined" ? props.bar.clientWidth || window.innerWidth : 1280,
+  );
+  const [searchExpanded, setSearchExpanded] = createSignal(false);
+
   let avatarImage!: HTMLImageElement;
   let searchContainer!: HTMLDivElement;
+  let searchBox!: HTMLDivElement;
+  let searchBack!: HTMLButtonElement;
+  let searchTrigger!: HTMLButtonElement;
   let searchInput!: HTMLInputElement;
+  let suggestionsEl!: HTMLDivElement;
   let suggestTimer: number | undefined;
   let latestSuggestionRequest = 0;
   let authContainer!: HTMLDivElement;
+  let loginButton!: HTMLButtonElement;
   let sectionsButton!: HTMLButtonElement;
+  let controlsGroup!: HTMLDivElement;
   let tabList!: HTMLElement;
   let iconTabList!: HTMLDivElement;
   let indicatorFrame = 0;
   let indicatorRoute: RouteId | undefined;
-  let indicatorStyle: TitlebarStyle | undefined;
+  let indicatorNavLayout: NavLayout | undefined;
   let indicatorPosition: { x: number; width: number } | undefined;
-  let indicatorTransitionTimer: number | undefined;
-  let lastMenuCloseTime = 0;
+  let indicatorAnimation: AnimationPlaybackControlsWithThen | null = null;
+  let isClosingExpandedSearch = false;
+  let stopFloatingSuggestions: (() => void) | undefined;
+  let elevationDropTimer: number | undefined;
+  let wasMenuOpen = false;
   let disposed = false;
   const unlisteners: UnlistenFn[] = [];
   const appWindow = getCurrentWindow();
+
+  const navLayout = createMemo<NavLayout>(() => {
+    const style = state.style();
+    const width = barWidth();
+    const integrated = state.integrated();
+    if (style === "compact") return "menu";
+    if (style === "icons") {
+      if ((integrated && width < 740) || (!integrated && width < 480)) return "menu";
+      return "icons";
+    }
+    if (integrated) {
+      if (width >= 1060) return "tabs";
+      if (width >= 740) return "icons";
+      return "menu";
+    }
+    if (width >= 680) return "tabs";
+    if (width >= 480) return "icons";
+    return "menu";
+  });
+
+  const compactAuth = createMemo(() => state.integrated() && barWidth() < 1060);
+  const compactSearch = createMemo(() => state.integrated() && barWidth() < 620);
+  const compactControls = createMemo(() => barWidth() < 680);
 
   let previousAuth = state.auth();
   createEffect(() => {
@@ -117,73 +176,163 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
     if (auth === previousAuth) return;
     previousAuth = auth;
     setAvatarFailed(false);
+    setMenuAvatarFailed(false);
     if (auth.avatarUrl) avatarImage.src = auth.avatarUrl;
   });
 
   createEffect(() => {
-    props.bar.classList.toggle("titlebar--icons-mode", state.style() === "icons");
-    props.bar.classList.toggle("titlebar--compact-mode", state.style() === "compact");
+    const menuOpen = activeMenu() !== null;
+    const hasSuggestions = suggestions().length > 0;
+    if (menuOpen || hasSuggestions) {
+      if (elevationDropTimer !== undefined) {
+        window.clearTimeout(elevationDropTimer);
+        elevationDropTimer = undefined;
+      }
+      wasMenuOpen = menuOpen;
+      void api.setUiElevation(true).catch(() => undefined);
+      return;
+    }
+    const shouldDelayDrop = wasMenuOpen && isMotionEnabled();
+    wasMenuOpen = false;
+    if (shouldDelayDrop) {
+      if (elevationDropTimer !== undefined) window.clearTimeout(elevationDropTimer);
+      elevationDropTimer = window.setTimeout(() => {
+        elevationDropTimer = undefined;
+        if (activeMenu() === null && suggestions().length === 0) {
+          void api.setUiElevation(false).catch(() => undefined);
+        }
+      }, 150);
+    } else {
+      void api.setUiElevation(false).catch(() => undefined);
+    }
+  });
+
+  createEffect(() => {
+    barWidth();
+    const layout = navLayout();
+    const compact = compactSearch();
+    const expanded = compact && searchExpanded();
+    props.bar.classList.toggle("titlebar--tabs-mode", layout === "tabs");
+    props.bar.classList.toggle("titlebar--icons-mode", layout === "icons");
+    props.bar.classList.toggle("titlebar--compact-mode", layout === "menu");
     props.bar.classList.toggle("titlebar--integrated-masthead", state.integrated());
+    props.bar.classList.toggle("titlebar--compact-auth", compactAuth());
+    props.bar.classList.toggle("titlebar--compact-controls", compactControls());
+    props.bar.classList.toggle("titlebar--compact-search", compact);
+    props.bar.classList.toggle("titlebar--search-expanded", expanded);
+    if (controlsGroup) {
+      props.bar.style.setProperty("--controls-width", `${controlsGroup.offsetWidth || (compactControls() ? 108 : 138)}px`);
+    }
+  });
+
+  createEffect(() => {
+    if (!compactSearch() && searchExpanded()) {
+      isClosingExpandedSearch = false;
+      stopElementMotion(searchBox);
+      stopElementMotion(searchBack);
+      setSearchExpanded(false);
+    }
+  });
+
+  let previousNavLayout: NavLayout | undefined;
+  createEffect(() => {
+    const layout = navLayout();
+    if (previousNavLayout !== undefined && previousNavLayout !== layout) {
+      stopElementMotion(tabList);
+      stopElementMotion(iconTabList);
+      stopElementMotion(sectionsButton);
+      const target = layout === "menu" ? sectionsButton : layout === "icons" ? iconTabList : tabList;
+      if (target) {
+        playElementMotion(target, { opacity: [0, 1], scale: [0.95, 1], y: [-2, 0] }, { duration: 0.2 });
+      }
+    }
+    previousNavLayout = layout;
+  });
+
+  let previousCompactAuth: boolean | undefined;
+  createEffect(() => {
+    const compact = compactAuth();
+    if (previousCompactAuth !== undefined && previousCompactAuth !== compact && loginButton && !loginButton.hidden) {
+      playElementMotion(loginButton, { opacity: [0.65, 1], scale: [0.94, 1] }, { duration: 0.2 });
+    }
+    previousCompactAuth = compact;
+  });
+
+  let previousCompactSearch: boolean | undefined;
+  createEffect(() => {
+    const compact = compactSearch();
+    if (previousCompactSearch !== undefined && previousCompactSearch !== compact) {
+      stopElementMotion(searchTrigger);
+      stopElementMotion(searchBox);
+      if (compact && searchTrigger) {
+        playElementMotion(
+          searchTrigger,
+          { opacity: [0, 1], scale: [0.78, 1] },
+          { duration: 0.2 },
+        );
+      } else if (!compact && searchBox) {
+        playElementMotion(
+          searchBox,
+          {
+            opacity: [0.35, 1],
+            clipPath: ["inset(0 100% 0 0 round 40px)", "inset(0 0% 0 0 round 40px)"],
+          },
+          { duration: 0.22 },
+        );
+      }
+    }
+    previousCompactSearch = compact;
   });
 
   const updateTabIndicator = (): void => {
     if (indicatorFrame) cancelAnimationFrame(indicatorFrame);
     indicatorFrame = requestAnimationFrame(() => {
       indicatorFrame = 0;
-      const indicatorList = state.style() === "icons" ? iconTabList : tabList;
-      if (indicatorList.hidden) return;
+      const layout = navLayout();
+      if (layout === "menu") return;
+      const indicatorList = layout === "icons" && state.style() === "icons" ? iconTabList : tabList;
+      if (!indicatorList || indicatorList.hidden) return;
 
       const activeTab = indicatorList.querySelector<HTMLButtonElement>(`[data-route="${state.active()}"]`);
       if (!activeTab) return;
 
       const listLeft = indicatorList.getBoundingClientRect().left;
       const activeBounds = activeTab.getBoundingClientRect();
-      const inset = state.style() === "icons" ? 4 : 11;
+      if (activeBounds.width <= 0) return;
+
+      const inset = layout === "icons" || activeBounds.width <= 40 ? 4 : 11;
       const nextPosition = {
-        x: activeBounds.left - listLeft + inset,
-        width: Math.max(0, activeBounds.width - inset * 2),
+        x: Math.round((activeBounds.left - listLeft + inset) * 10) / 10,
+        width: Math.max(0, Math.round((activeBounds.width - inset * 2) * 10) / 10),
       };
       const indicator = indicatorList.querySelector<HTMLElement>(".titlebar__tab-indicator");
-      const renderedIndicator = indicator?.getBoundingClientRect();
-      const startPosition = renderedIndicator
+      if (!indicator) return;
+
+      const renderedIndicator = indicator.getBoundingClientRect();
+      const startPosition = renderedIndicator.width > 0
         ? { x: renderedIndicator.left - listLeft, width: renderedIndicator.width }
         : indicatorPosition;
       const routeChanged = indicatorRoute !== undefined && indicatorRoute !== state.active();
-      const sameStyle = indicatorStyle === state.style();
-      const motion = getComputedStyle(document.documentElement)
-        .getPropertyValue("--motion-fast")
-        .trim();
-      const duration = motion.endsWith("ms") ? Number.parseFloat(motion) : Number.parseFloat(motion) * 1000;
-      const motionAllowed = document.documentElement.dataset.motion !== "off"
-        && !window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        && Number.isFinite(duration)
-        && duration > 0;
+      const sameLayout = indicatorNavLayout === layout;
+      const shouldAnimate = routeChanged && sameLayout && startPosition !== undefined;
 
-      const shouldAnimate = indicator && routeChanged && sameStyle && startPosition && motionAllowed;
-      if (indicator) {
-        indicator.style.transition = "none";
-        if (indicatorTransitionTimer !== undefined) window.clearTimeout(indicatorTransitionTimer);
-      }
-
+      indicatorAnimation?.stop();
       if (shouldAnimate) {
-        indicatorList.style.setProperty("--tab-indicator-x", `${startPosition.x}px`);
-        indicatorList.style.setProperty("--tab-indicator-width", `${startPosition.width}px`);
-        void indicator.offsetWidth;
-        indicator.style.transition = `transform ${duration}ms cubic-bezier(0.16, 1, 0.3, 1), width ${duration}ms cubic-bezier(0.16, 1, 0.3, 1)`;
-      }
-
-      indicatorList.style.setProperty("--tab-indicator-x", `${nextPosition.x}px`);
-      indicatorList.style.setProperty("--tab-indicator-width", `${nextPosition.width}px`);
-
-      if (shouldAnimate) {
-        indicatorTransitionTimer = window.setTimeout(() => {
-          if (indicator) indicator.style.transition = "none";
-          indicatorTransitionTimer = undefined;
-        }, duration);
+        indicatorAnimation = animateMotion(
+          indicator,
+          { x: [startPosition.x, nextPosition.x], width: [startPosition.width, nextPosition.width] },
+          { duration: 0.22 },
+        );
+      } else {
+        indicatorAnimation = animateMotion(
+          indicator,
+          { x: nextPosition.x, width: nextPosition.width },
+          { duration: 0 },
+        );
       }
 
       indicatorRoute = state.active();
-      indicatorStyle = state.style();
+      indicatorNavLayout = layout;
       indicatorPosition = nextPosition;
 
       if (indicatorList.dataset.indicatorReady !== "true") {
@@ -196,6 +345,8 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
     state.active();
     state.style();
     state.integrated();
+    navLayout();
+    barWidth();
     updateTabIndicator();
   });
 
@@ -220,21 +371,138 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
   Previous input handlers also activated this bridge on focus/click and forwarded
   each input event to updateNativeSuggestions(). The custom dropdown below replaces it.
   */
+  const stopSuggestionsPositioning = (): void => {
+    stopFloatingSuggestions?.();
+    stopFloatingSuggestions = undefined;
+  };
+
+  const positionSuggestions = (): void => {
+    if (!searchBox || !suggestionsEl || suggestionsEl.hidden) return;
+    void computePosition(searchBox, suggestionsEl, {
+      strategy: "fixed",
+      placement: "bottom-start",
+      middleware: [
+        offset(6),
+        flip({ padding: 8 }),
+        shift({ padding: 8 }),
+        size({
+          padding: 8,
+          apply({ rects, availableWidth, availableHeight }) {
+            const targetWidth = Math.min(Math.max(rects.reference.width, 280), availableWidth);
+            Object.assign(suggestionsEl.style, {
+              width: `${Math.round(targetWidth)}px`,
+              maxWidth: `${Math.round(availableWidth)}px`,
+              maxHeight: `${Math.round(Math.min(360, availableHeight))}px`,
+            });
+          },
+        }),
+      ],
+    }).then(({ x, y }) => {
+      if (!suggestionsEl || suggestionsEl.hidden) return;
+      Object.assign(suggestionsEl.style, {
+        left: `${Math.round(x)}px`,
+        top: `${Math.round(y)}px`,
+      });
+    });
+  };
+
   const closeSuggestions = (): void => {
     latestSuggestionRequest += 1;
     if (suggestTimer !== undefined) {
       window.clearTimeout(suggestTimer);
       suggestTimer = undefined;
     }
+    stopSuggestionsPositioning();
     setSuggestions([]);
     setSelectedIndex(-1);
-    void api.setUiElevation(false).catch(() => undefined);
   };
 
   const showSuggestions = (items: Suggestion[]): void => {
+    const wasEmpty = suggestions().length === 0;
     setSuggestions(items);
     setSelectedIndex(-1);
-    void api.setUiElevation(items.length > 0).catch(() => undefined);
+    if (items.length === 0) {
+      stopSuggestionsPositioning();
+      return;
+    }
+    if (!stopFloatingSuggestions && searchBox && suggestionsEl) {
+      stopFloatingSuggestions = autoUpdate(searchBox, suggestionsEl, positionSuggestions);
+    }
+    positionSuggestions();
+    if (wasEmpty && suggestionsEl) {
+      animateFadeScaleIn(suggestionsEl, 0.15, -6);
+    }
+  };
+
+  const openExpandedSearch = (): void => {
+    isClosingExpandedSearch = false;
+    stopElementMotion(searchTrigger);
+    stopElementMotion(searchBox);
+    stopElementMotion(searchBack);
+    setSearchExpanded(true);
+    requestAnimationFrame(() => {
+      if (searchBack) {
+        playElementMotion(
+          searchBack,
+          { opacity: [0, 1], scale: [0.82, 1], x: [-6, 0] },
+          { duration: 0.2 },
+        );
+      }
+      if (searchBox) {
+        playElementMotion(
+          searchBox,
+          {
+            opacity: [0.35, 1],
+            clipPath: ["inset(0 100% 0 0 round 40px)", "inset(0 0% 0 0 round 40px)"],
+          },
+          { duration: 0.22 },
+        );
+      }
+      searchInput?.focus();
+      void updateSearchDropdown();
+    });
+  };
+
+  const closeExpandedSearch = (): void => {
+    closeSuggestions();
+    if (!compactSearch() || !searchExpanded() || isClosingExpandedSearch) return;
+    if (!isMotionEnabled() || !searchBox) {
+      setSearchExpanded(false);
+      return;
+    }
+    isClosingExpandedSearch = true;
+    const closingAnimation = playElementMotion(
+      searchBox,
+      {
+        opacity: [1, 0],
+        clipPath: ["inset(0 0% 0 0 round 40px)", "inset(0 100% 0 0 round 40px)"],
+      },
+      { duration: 0.16, keepStyles: true },
+    );
+    if (searchBack) {
+      playElementMotion(
+        searchBack,
+        { opacity: [1, 0], scale: [1, 0.82], x: [0, -6] },
+        { duration: 0.16, keepStyles: true },
+      );
+    }
+    const finishClosing = (): void => {
+      if (!isClosingExpandedSearch) return;
+      isClosingExpandedSearch = false;
+      stopElementMotion(searchBox);
+      stopElementMotion(searchBack);
+      setSearchExpanded(false);
+      requestAnimationFrame(() => {
+        if (searchTrigger && !searchTrigger.hidden) {
+          playElementMotion(searchTrigger, { opacity: [0, 1], scale: [0.8, 1] }, { duration: 0.18 });
+        }
+      });
+    };
+    if (closingAnimation) {
+      void closingAnimation.finished.finally(finishClosing);
+    } else {
+      finishClosing();
+    }
   };
 
   const submitSearch = (raw: string): void => {
@@ -243,6 +511,7 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
     saveSearchHistoryQuery(value);
     setQuery(value);
     closeSuggestions();
+    if (compactSearch()) closeExpandedSearch();
     props.actions.onNavigate("home");
     void api.ytNavigate(`search:${encodeURIComponent(value)}`);
   };
@@ -280,52 +549,48 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
     setQuery(items[index].text);
   };
 
-  const toggleAuthMenu = async (): Promise<void> => {
-    if (Date.now() - lastMenuCloseTime < 220) return;
-    if (await api.isContextMenuVisible()) {
-      await api.hideContextMenu();
-      setSectionsMenuOpen(false);
-      return;
-    }
-
-    const rect = authContainer.getBoundingClientRect();
-    const outerPos = await appWindow.outerPosition();
-    const scale = await appWindow.scaleFactor();
-    const width = 260;
-    const height = state.auth().loggedIn ? 430 : 230;
-    const paddingX = 24;
-    const topPadding = 8;
-    const bottomPadding = 36;
-    await api.showContextMenu({
-      x: Math.round(outerPos.x / scale + rect.right - width - paddingX),
-      y: Math.round(outerPos.y / scale + rect.bottom + 6 - topPadding),
-      width: width + paddingX * 2,
-      height: height + topPadding + bottomPadding,
-      auth: state.auth(),
-      mode: "account",
-    });
+  const toggleAuthMenu = (): void => {
+    closeSuggestions();
+    setActiveMenu((current) => (current === "account" ? null : "account"));
   };
 
-  const toggleSectionsMenu = async (): Promise<void> => {
-    if (await api.isContextMenuVisible()) {
-      await api.hideContextMenu();
-      setSectionsMenuOpen(false);
-      return;
-    }
+  const toggleSectionsMenu = (): void => {
+    closeSuggestions();
+    setActiveMenu((current) => (current === "sections" ? null : "sections"));
+  };
 
-    const rect = sectionsButton.getBoundingClientRect();
-    const outerPos = await appWindow.outerPosition();
-    const scale = await appWindow.scaleFactor();
-    await api.showContextMenu({
-      x: Math.round(outerPos.x / scale + rect.left - 24),
-      y: Math.round(outerPos.y / scale + rect.bottom - 8),
-      width: 308,
-      height: 320,
-      auth: state.auth(),
-      mode: "sections",
-      activeRoute: state.active(),
-    });
-    setSectionsMenuOpen(true);
+  const handleMenuAction = (action: string): void => {
+    setActiveMenu(null);
+    if (action.startsWith("section:")) {
+      const route = action.slice("section:".length);
+      const tab = APP_SECTIONS.find((item) => item.id === route);
+      if (tab) props.actions.onNavigate(tab.id);
+    } else if (action === "login") {
+      void api.openAuthModal();
+    } else if (action === "logout") {
+      props.actions.onNavigate("home");
+      void api.ytNavigate("url:https://www.youtube.com/logout");
+    } else if (action === "channel") {
+      props.actions.onNavigate("home");
+      void api.ytNavigate("url:https://www.youtube.com/feed/library");
+    } else if (action === "studio") {
+      props.actions.onNavigate("home");
+      void api.ytNavigate("url:https://studio.youtube.com");
+    } else if (action === "purchases") {
+      props.actions.onNavigate("home");
+      void api.ytNavigate("url:https://www.youtube.com/paid_memberships");
+    } else if (action === "your-data") {
+      props.actions.onNavigate("home");
+      void api.ytNavigate("url:https://myaccount.google.com/yourdata/youtube");
+    } else if (action === "shortcuts") {
+      props.actions.onNavigate("home");
+      void api.ytNavigate("eval:(function(){ document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', shiftKey: true, bubbles: true })); })()");
+    } else if (action === "settings-app") {
+      props.actions.onNavigate("settings");
+    } else if (action === "help") {
+      props.actions.onNavigate("home");
+      void api.ytNavigate("url:https://support.google.com/youtube");
+    }
   };
 
   const handleAction = async (action: string): Promise<void> => {
@@ -338,7 +603,7 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
         await api.ytNavigate(action);
         break;
       case "toggle-auth-menu":
-        await toggleAuthMenu();
+        toggleAuthMenu();
         break;
       case "minimize":
         await appWindow.minimize();
@@ -368,22 +633,22 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
   const onDocumentClick = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof Node)) return;
-    if (!searchContainer.contains(target)) closeSuggestions();
-    if (!authContainer.contains(target) && !sectionsButton.contains(target)) {
-      void api.hideContextMenu().catch(() => undefined);
+    if (!searchContainer.contains(target)) {
+      closeSuggestions();
+      if (compactSearch() && searchExpanded()) closeExpandedSearch();
     }
   };
 
   const onDocumentKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== "Escape") return;
-    void api.hideContextMenu().catch(() => undefined);
     if (suggestions().length > 0) closeSuggestions();
+    if (compactSearch() && searchExpanded()) closeExpandedSearch();
   };
 
   const onBarDoubleClick = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest("button, [data-route], .titlebar__search-box")) return;
+    if (target.closest("button, [data-route], .titlebar__search-box, .titlebar__search-container")) return;
     runAction("toggle-maximize");
   };
 
@@ -393,9 +658,25 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
     props.bar.addEventListener("dblclick", onBarDoubleClick);
     void syncMaximize();
 
+    const syncBarWidth = (): void => {
+      const next = props.bar.clientWidth || window.innerWidth;
+      if (next > 0) setBarWidth(next);
+      if (controlsGroup) {
+        props.bar.style.setProperty("--controls-width", `${controlsGroup.offsetWidth || 138}px`);
+      }
+    };
+    syncBarWidth();
+
+    const barResizeObserver = new ResizeObserver(() => {
+      syncBarWidth();
+      updateTabIndicator();
+    });
+    barResizeObserver.observe(props.bar);
+
     const tabResizeObserver = new ResizeObserver(updateTabIndicator);
     tabResizeObserver.observe(tabList);
     tabResizeObserver.observe(iconTabList);
+    window.addEventListener("resize", syncBarWidth);
     window.addEventListener("resize", updateTabIndicator);
 
     const register = (promise: Promise<UnlistenFn>): void => {
@@ -405,53 +686,34 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
       }).catch(() => undefined);
     };
     register(appWindow.onResized(() => void syncMaximize()));
-    register(listen("menu://closed", () => {
-      lastMenuCloseTime = Date.now();
-      setSectionsMenuOpen(false);
-    }));
-    register(listen<{ action: string }>("menu-action", (event) => {
-      const action = event.payload?.action;
-      if (!action) return;
-      if (action.startsWith("section:")) {
-        const route = action.slice("section:".length);
-        const tab = APP_SECTIONS.find((item) => item.id === route);
-        if (tab) props.actions.onNavigate(tab.id);
-      } else if (action === "login") void api.openAuthModal();
-      else if (action === "logout") {
-        props.actions.onNavigate("home");
-        void api.ytNavigate("url:https://www.youtube.com/logout");
-      } else if (action === "channel") {
-        props.actions.onNavigate("home");
-        void api.ytNavigate("url:https://www.youtube.com/feed/library");
-      } else if (action === "studio") {
-        props.actions.onNavigate("home");
-        void api.ytNavigate("url:https://studio.youtube.com");
-      } else if (action === "purchases") {
-        props.actions.onNavigate("home");
-        void api.ytNavigate("url:https://www.youtube.com/paid_memberships");
-      } else if (action === "your-data") {
-        props.actions.onNavigate("home");
-        void api.ytNavigate("url:https://myaccount.google.com/yourdata/youtube");
-      } else if (action === "shortcuts") {
-        props.actions.onNavigate("home");
-        void api.ytNavigate("eval:(function(){ document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', shiftKey: true, bubbles: true })); })()");
-      } else if (action === "settings-app") {
-        props.actions.onNavigate("settings");
-      } else if (action === "help") {
-        props.actions.onNavigate("home");
-        void api.ytNavigate("url:https://support.google.com/youtube");
-      }
-    }));
+    register(
+      listen<YoutubeNavState>("youtube://nav-state", (event) => {
+        if (!event.payload) return;
+        setCanGoBack(Boolean(event.payload.canGoBack));
+        setCanGoForward(Boolean(event.payload.canGoForward));
+      }).then((stop) => {
+        void api.requestYoutubeNavState().catch(() => undefined);
+        return stop;
+      }),
+    );
+    register(
+      listen<boolean>("youtube://voice-state", (event) => {
+        setVoiceActive(Boolean(event.payload));
+      }),
+    );
 
     onCleanup(() => {
       disposed = true;
       closeSuggestions();
+      if (elevationDropTimer !== undefined) window.clearTimeout(elevationDropTimer);
+      indicatorAnimation?.stop();
       document.removeEventListener("click", onDocumentClick);
       document.removeEventListener("keydown", onDocumentKeyDown);
       props.bar.removeEventListener("dblclick", onBarDoubleClick);
+      barResizeObserver.disconnect();
       tabResizeObserver.disconnect();
+      window.removeEventListener("resize", syncBarWidth);
       window.removeEventListener("resize", updateTabIndicator);
-      if (indicatorTransitionTimer !== undefined) window.clearTimeout(indicatorTransitionTimer);
       if (indicatorFrame) cancelAnimationFrame(indicatorFrame);
       for (const stop of unlisteners) stop();
     });
@@ -497,8 +759,22 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
     return `${t("nav.discord")} — ${detail}`;
   };
 
-  const navigationButton = (action: string, label: TranslationKey, iconName: IconName, className = "") => (
-    <button type="button" class={`titlebar__button ${className}`} data-action={action} title={t(label)} aria-label={t(label)} onClick={() => runAction(action)}>
+  const navigationButton = (
+    action: string,
+    label: TranslationKey,
+    iconName: IconName,
+    className = "",
+    disabled?: () => boolean,
+  ) => (
+    <button
+      type="button"
+      class={`titlebar__button ${className}`}
+      data-action={action}
+      title={t(label)}
+      aria-label={t(label)}
+      disabled={disabled ? disabled() : false}
+      onClick={() => runAction(action)}
+    >
       <Icon name={iconName} size={16} />
     </button>
   );
@@ -512,13 +788,42 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
         <Icon name="brand" size={28} class="external-icon" style={{ pointerEvents: "none", display: "block", width: "28px", height: "20px" }} />
       </div>
       <div class="titlebar__group" role="group" aria-label={t("titlebar.youtubeNavigation")}>
-        {navigationButton("back", "titlebar.back", "back")}
-        {navigationButton("forward", "titlebar.forward", "forward")}
+        {navigationButton("back", "titlebar.back", "back", "", () => !canGoBack())}
+        {navigationButton("forward", "titlebar.forward", "forward", "", () => !canGoForward())}
         {navigationButton("reload", "titlebar.reload", "reload")}
       </div>
       <div class="titlebar__spacer titlebar__spacer--left" data-tauri-drag-region />
-      <div class="titlebar__search-container" role="search" hidden={!state.integrated()} ref={searchContainer}>
-        <div class="titlebar__search-box">
+      <div
+        class="titlebar__search-container"
+        classList={{ "titlebar__search-container--expanded": compactSearch() && searchExpanded() }}
+        role="search"
+        hidden={!state.integrated()}
+        ref={searchContainer}
+      >
+        <button
+          type="button"
+          class="titlebar__button titlebar__search-back"
+          title={t("titlebar.back")}
+          aria-label={t("titlebar.back")}
+          hidden={!(compactSearch() && searchExpanded())}
+          onClick={closeExpandedSearch}
+          ref={searchBack}
+        >
+          <Icon name="back" size={16} />
+        </button>
+        <button
+          type="button"
+          class="titlebar__button titlebar__search-trigger"
+          title={t("titlebar.search")}
+          aria-label={t("titlebar.search")}
+          aria-expanded={searchExpanded()}
+          hidden={!compactSearch() || searchExpanded()}
+          onClick={openExpandedSearch}
+          ref={searchTrigger}
+        >
+          <Icon name="search" source="youtube" rawSvg={state.icons().search} size={20} style={{ pointerEvents: "none", display: "inherit" }} />
+        </button>
+        <div class="titlebar__search-box" hidden={compactSearch() && !searchExpanded()} ref={searchBox}>
           <div class="titlebar__search-input-wrapper">
             <input
               type="text"
@@ -555,59 +860,78 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
                 } else if (event.key === "Escape") {
                   event.preventDefault();
                   closeSuggestions();
+                  if (compactSearch() && searchExpanded()) closeExpandedSearch();
                 }
               }}
             />
-            <button type="button" class="titlebar__search-clear" title={t("titlebar.clearSearch")} aria-label={t("titlebar.clearSearch")} hidden={query().length === 0} onClick={() => {
-              setQuery("");
-              setSelectedIndex(-1);
-              searchInput.focus();
-              void updateSearchDropdown();
-            }}>
+            <button
+              type="button"
+              class="titlebar__search-clear"
+              classList={{ "titlebar__search-clear--visible": query().length > 0 }}
+              title={t("titlebar.clearSearch")}
+              aria-label={t("titlebar.clearSearch")}
+              aria-hidden={query().length === 0}
+              tabIndex={query().length === 0 ? -1 : 0}
+              onClick={() => {
+                setQuery("");
+                setSelectedIndex(-1);
+                searchInput.focus();
+                void updateSearchDropdown();
+              }}
+            >
               <Icon name="clear" size={18} style={{ pointerEvents: "none" }} />
             </button>
           </div>
           <button type="button" class="titlebar__search-submit" title={t("titlebar.search")} aria-label={t("titlebar.search")} onClick={() => submitSearch(query())}>
             <Icon name="search" source="youtube" rawSvg={state.icons().search} size={20} style={{ pointerEvents: "none", display: "inherit" }} />
           </button>
-          <div id="titlebar-search-suggestions" class="titlebar__search-suggestions" role="group" aria-label={t("titlebar.searchSuggestions")} hidden={suggestions().length === 0}>
-            <For each={suggestions()}>
-              {(item, index) => (
-                <div
-                  class="titlebar__suggestion-item"
-                  classList={{ "titlebar__suggestion-item--history": item.isHistory, "titlebar__suggestion-item--selected": selectedIndex() === index() }}
-                >
-                  <button type="button" class="titlebar__suggestion-choice" id={`titlebar-suggestion-${index()}`} aria-current={selectedIndex() === index() ? "true" : undefined} onClick={() => submitSearch(item.text)}>
-                    <Icon name={item.isHistory ? "history" : "search"} source="youtube" size={24} class="titlebar__suggestion-icon" style={{ pointerEvents: "none", display: "block", width: "24px", height: "24px", flex: "0 0 24px" }} />
-                    <span class="titlebar__suggestion-text">{item.text}</span>
-                  </button>
-                  <Show when={item.isHistory}>
-                    <button type="button" class="titlebar__suggestion-remove" title={t("titlebar.removeSearchHistory")} aria-label={t("titlebar.removeSearch")} onClick={(event) => {
-                      event.stopPropagation();
-                      removeSearchHistoryQuery(item.text);
-                      void updateSearchDropdown();
-                      searchInput.focus();
-                    }}>
-                      <Icon name="clear" size={16} style={{ pointerEvents: "none" }} />
-                    </button>
-                  </Show>
-                </div>
-              )}
-            </For>
-          </div>
         </div>
-        <button type="button" class="titlebar__voice-button" data-action="voice" title={t("titlebar.voiceSearch")} aria-label={t("titlebar.voiceSearch")} onClick={() => runAction("voice")}>
+        <div id="titlebar-search-suggestions" class="titlebar__search-suggestions" role="group" aria-label={t("titlebar.searchSuggestions")} hidden={suggestions().length === 0} ref={suggestionsEl}>
+          <For each={suggestions()}>
+            {(item, index) => (
+              <div
+                class="titlebar__suggestion-item"
+                classList={{ "titlebar__suggestion-item--history": item.isHistory, "titlebar__suggestion-item--selected": selectedIndex() === index() }}
+              >
+                <button type="button" class="titlebar__suggestion-choice" id={`titlebar-suggestion-${index()}`} aria-current={selectedIndex() === index() ? "true" : undefined} onClick={() => submitSearch(item.text)}>
+                  <Icon name={item.isHistory ? "history" : "search"} source="youtube" size={24} class="titlebar__suggestion-icon" style={{ pointerEvents: "none", display: "block", width: "24px", height: "24px", flex: "0 0 24px" }} />
+                  <span class="titlebar__suggestion-text">{item.text}</span>
+                </button>
+                <Show when={item.isHistory}>
+                  <button type="button" class="titlebar__suggestion-remove" title={t("titlebar.removeSearchHistory")} aria-label={t("titlebar.removeSearch")} onClick={(event) => {
+                    event.stopPropagation();
+                    removeSearchHistoryQuery(item.text);
+                    void updateSearchDropdown();
+                    searchInput.focus();
+                  }}>
+                    <Icon name="clear" size={16} style={{ pointerEvents: "none" }} />
+                  </button>
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
+        <button
+          type="button"
+          class="titlebar__voice-button"
+          classList={{ "titlebar__voice-button--active": voiceActive() }}
+          data-action="voice"
+          title={t("titlebar.voiceSearch")}
+          aria-label={t("titlebar.voiceSearch")}
+          aria-pressed={voiceActive()}
+          onClick={() => runAction("voice")}
+        >
           <Icon name="voice" size={20} style={{ pointerEvents: "none", display: "inherit" }} />
         </button>
       </div>
 
 
       <div class="titlebar__spacer titlebar__spacer--right" data-tauri-drag-region />
-      <nav class="titlebar__tabs" role="tablist" aria-label={t("titlebar.appActions")} hidden={state.style() !== "tabs"} ref={tabList}>
+      <nav class="titlebar__tabs" role="tablist" aria-label={t("titlebar.appActions")} hidden={navLayout() === "menu" || (navLayout() === "icons" && state.style() === "icons")} ref={tabList}>
         <For each={APP_SECTIONS}>{(tab) => renderTabButton(tab)}</For>
         <span class="titlebar__tab-indicator" aria-hidden="true" />
       </nav>
-      <div class="titlebar__group titlebar__icons" role="group" aria-label={t("titlebar.appActions")} hidden={state.style() !== "icons"} ref={iconTabList}>
+      <div class="titlebar__group titlebar__icons" role="group" aria-label={t("titlebar.appActions")} hidden={navLayout() !== "icons" || state.style() !== "icons"} ref={iconTabList}>
         <For each={APP_SECTIONS}>{(tab) => renderTabButton(tab, true)}</For>
         <span class="titlebar__tab-indicator" aria-hidden="true" />
       </div>
@@ -617,9 +941,9 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
         title={t("titlebar.sectionsMenu")}
         aria-label={t("titlebar.sectionsMenu")}
         aria-haspopup="menu"
-        aria-expanded={sectionsMenuOpen()}
-        onClick={() => void toggleSectionsMenu().catch(() => undefined)}
-        hidden={state.style() !== "compact"}
+        aria-expanded={activeMenu() === "sections"}
+        onClick={toggleSectionsMenu}
+        hidden={navLayout() !== "menu"}
         ref={sectionsButton}
       >
         <Icon name="chevron" size={18} />
@@ -637,11 +961,31 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
             </span>
           </Show>
         }>
-          <button type="button" class="titlebar__login-button" data-action="toggle-auth-menu" title={t("titlebar.login")} onClick={() => runAction("toggle-auth-menu")} hidden={state.auth().loggedIn}>
+          <button
+            type="button"
+            class="titlebar__login-button"
+            data-action="toggle-auth-menu"
+            title={t("titlebar.login")}
+            aria-haspopup="menu"
+            aria-expanded={activeMenu() === "account"}
+            onClick={() => runAction("toggle-auth-menu")}
+            hidden={state.auth().loggedIn}
+            ref={loginButton}
+          >
             <Icon name="account" source="youtube" rawSvg={state.icons().account} size={20} style={{ pointerEvents: "none", display: "inherit" }} />
             <span class="titlebar__login-label">{t("titlebar.login")}</span>
           </button>
-          <button type="button" class="titlebar__avatar-button" data-action="toggle-auth-menu" title={state.auth().displayName || t("titlebar.account")} aria-label={t("titlebar.account")} onClick={() => runAction("toggle-auth-menu")} hidden={!state.auth().loggedIn}>
+          <button
+            type="button"
+            class="titlebar__avatar-button"
+            data-action="toggle-auth-menu"
+            title={state.auth().displayName || t("titlebar.account")}
+            aria-label={t("titlebar.account")}
+            aria-haspopup="menu"
+            aria-expanded={activeMenu() === "account"}
+            onClick={() => runAction("toggle-auth-menu")}
+            hidden={!state.auth().loggedIn}
+          >
             <img
               class="titlebar__avatar-img"
               alt={t("titlebar.account")}
@@ -662,7 +1006,134 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
         </Show>
       </div>
 
-      <div class="titlebar__group titlebar__controls" role="group" aria-label={t("titlebar.windowControls")}>
+      <FloatingMenu
+        open={() => activeMenu() === "sections"}
+        anchor={() => sectionsButton}
+        placement="bottom-start"
+        align="start"
+        width={228}
+        ariaLabel={t("titlebar.appActions")}
+        onClose={() => setActiveMenu(null)}
+      >
+        <div class="yt-menu__body">
+          <For each={APP_SECTIONS}>
+            {({ id: route, labelKey, icon }) => {
+              const selected = () => state.active() === route;
+              return (
+                <button
+                  type="button"
+                  class="yt-menu__item"
+                  classList={{ "yt-menu__item--selected": selected() }}
+                  role="menuitemradio"
+                  aria-checked={selected()}
+                  aria-current={selected() ? "page" : undefined}
+                  onClick={() => handleMenuAction(`section:${route}`)}
+                >
+                  <Icon name={icon} size={20} />
+                  <span>{t(labelKey)}</span>
+                  <Show when={selected()}><Icon name="check" size={16} class="yt-menu__item-check" /></Show>
+                </button>
+              );
+            }}
+          </For>
+        </div>
+      </FloatingMenu>
+
+      <FloatingMenu
+        open={() => activeMenu() === "account"}
+        anchor={() => authContainer}
+        placement="bottom-end"
+        align="end"
+        width={260}
+        ariaLabel={t("titlebar.account")}
+        onClose={() => setActiveMenu(null)}
+      >
+        <Show
+          when={state.auth().loggedIn}
+          fallback={
+            <div class="yt-menu__body">
+              <button type="button" class="yt-menu__item yt-menu__item--highlight" role="menuitem" onClick={() => handleMenuAction("login")}>
+                <Icon name="account" size={20} />
+                <span>{t("menu.signIn")}</span>
+              </button>
+              <button type="button" class="yt-menu__item" role="menuitem" onClick={() => handleMenuAction("your-data")}>
+                <Icon name="your-data" size={20} />
+                <span>{t("menu.yourData")}</span>
+              </button>
+              <div class="yt-menu__divider" />
+              <button type="button" class="yt-menu__item" role="menuitem" onClick={() => handleMenuAction("shortcuts")}>
+                <Icon name="shortcuts" size={20} />
+                <span>{t("menu.shortcuts")}</span>
+              </button>
+              <button type="button" class="yt-menu__item" role="menuitem" onClick={() => handleMenuAction("settings-app")}>
+                <Icon name="settings" size={20} />
+                <span>{t("menu.appSettings")}</span>
+              </button>
+              <button type="button" class="yt-menu__item" role="menuitem" onClick={() => handleMenuAction("help")}>
+                <Icon name="help" size={20} />
+                <span>{t("menu.help")}</span>
+              </button>
+            </div>
+          }
+        >
+          <>
+            <div class="yt-menu__header">
+              <div class="yt-menu__avatar-container">
+                <Show when={state.auth().avatarUrl}>
+                  <img
+                    class="yt-menu__header-avatar"
+                    src={state.auth().avatarUrl!}
+                    referrerpolicy="no-referrer"
+                    alt=""
+                    style={{ display: menuAvatarFailed() ? "none" : "block" }}
+                    onError={() => setMenuAvatarFailed(true)}
+                  />
+                </Show>
+                <span
+                  class="yt-menu__header-avatar--fallback"
+                  style={{ display: state.auth().avatarUrl && !menuAvatarFailed() ? "none" : "flex" }}
+                >
+                  <Icon name="account" size={24} />
+                </span>
+              </div>
+              <div class="yt-menu__header-info">
+                <span class="yt-menu__header-name">{state.auth().displayName || state.auth().handle || t("menu.myAccount")}</span>
+                <Show when={state.auth().handle}><span class="yt-menu__header-handle">{state.auth().handle}</span></Show>
+              </div>
+            </div>
+            <div class="yt-menu__body">
+              <For each={ACCOUNT_ITEMS.slice(0, 4)}>
+                {([action, label, icon]) => (
+                  <button type="button" class="yt-menu__item" role="menuitem" onClick={() => handleMenuAction(action)}>
+                    <Icon name={icon} size={20} />
+                    <span>{t(label)}</span>
+                  </button>
+                )}
+              </For>
+              <div class="yt-menu__divider" />
+              <For each={ACCOUNT_ITEMS.slice(4, 6)}>
+                {([action, label, icon]) => (
+                  <button type="button" class="yt-menu__item" role="menuitem" onClick={() => handleMenuAction(action)}>
+                    <Icon name={icon} size={20} />
+                    <span>{t(label)}</span>
+                  </button>
+                )}
+              </For>
+              <div class="yt-menu__divider" />
+              <For each={ACCOUNT_ITEMS.slice(6)}>
+                {([action, label, icon]) => (
+                  <button type="button" class="yt-menu__item" role="menuitem" onClick={() => handleMenuAction(action)}>
+                    <Icon name={icon} size={20} />
+                    <span>{t(label)}</span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </>
+        </Show>
+      </FloatingMenu>
+
+      <div class="titlebar__group titlebar__controls" role="group" aria-label={t("titlebar.windowControls")} ref={controlsGroup}>
         {navigationButton("minimize", "titlebar.minimize", "minimize", "titlebar__button--window")}
         <button type="button" class="titlebar__button titlebar__button--window" data-action="toggle-maximize" title={t(maximized() ? "titlebar.restore" : "titlebar.maximize")} aria-label={t(maximized() ? "titlebar.restore" : "titlebar.maximize")} onClick={() => runAction("toggle-maximize")}>
           <Show when={maximized()} fallback={<Icon name="maximize" size={16} />}><Icon name="restore" size={16} /></Show>

@@ -6,6 +6,7 @@ import checkSvg from "../assets/icons/launcher/check.svg?raw";
 import chevronSvg from "../assets/icons/launcher/chevron.svg?raw";
 import clockSvg from "../assets/icons/launcher/clock.svg?raw";
 import closeSvg from "../assets/icons/launcher/close.svg?raw";
+import columnsSvg from "../assets/icons/launcher/columns.svg?raw";
 import copySvg from "../assets/icons/launcher/copy.svg?raw";
 import discordSvg from "../assets/icons/launcher/discord.svg?raw";
 import extensionsSvg from "../assets/icons/launcher/extensions.svg?raw";
@@ -74,6 +75,7 @@ export type IconName =
   | "more"
   | "list"
   | "grid"
+  | "columns"
   | "copy"
   | "pip-screen";
 
@@ -130,6 +132,7 @@ const LAUNCHER_ICONS: Record<IconName, string> = {
   more: moreSvg,
   list: listSvg,
   grid: gridSvg,
+  columns: columnsSvg,
   copy: copySvg,
   "pip-screen": pipScreenSvg,
 };

@@ -156,6 +156,11 @@ export interface RpcStatus {
   detail: string | null;
 }
 
+export interface YoutubeNavState {
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
 export type NavigationAction =
   | "back"
   | "forward"
@@ -238,25 +243,14 @@ export const api = {
   requestYoutubeTitlebarIcons: (): Promise<void> =>
     invoke<void>("request_youtube_titlebar_icons"),
 
+  requestYoutubeNavState: (): Promise<void> =>
+    invoke<void>("request_youtube_nav_state"),
+
   setUiElevation: (elevated: boolean): Promise<void> =>
     invoke<void>("set_ui_elevation", { elevated }),
 
   fetchSuggestions: (query: string): Promise<string[]> =>
     invoke<string[]>("yt_suggest", { query }),
-
-  showContextMenu: (args: {
-    x: number;
-    y: number;
-    width?: number;
-    height?: number;
-    auth: AuthSnapshot;
-    mode?: "account" | "sections";
-    activeRoute?: string;
-  }): Promise<void> => invoke<void>("show_context_menu", { args }),
-
-  hideContextMenu: (): Promise<void> => invoke<void>("hide_context_menu"),
-
-  isContextMenuVisible: (): Promise<boolean> => invoke<boolean>("is_context_menu_visible"),
 
   openAuthModal: (): Promise<void> => invoke<void>("open_auth_modal"),
 

@@ -68,16 +68,20 @@ pub fn settings_update(
     // Synchronize Discord RPC immediately with the updated settings
     if let Ok(mut rpc) = state.rpc.lock() {
         if !next.rpc.enabled {
-            let _ = rpc.clear(&next.rpc);
+            if let Ok(status) = rpc.clear(&next.rpc) {
+                let _ = window.app_handle().emit(events::RPC_STATUS, &status);
+            }
         } else if let Ok(last) = state.last_player.lock() {
             if let Some(snapshot) = last.as_ref() {
                 let app_id = crate::rpc::model::app_id_for(&next.rpc, snapshot.is_music());
                 if let Some(activity) =
                     crate::rpc::model::build_activity(snapshot, &next.rpc, &next.general.language)
                 {
-                    let _ = rpc.update(&activity, &next.rpc, app_id);
-                } else {
-                    let _ = rpc.clear(&next.rpc);
+                    if let Ok(status) = rpc.update(&activity, &next.rpc, app_id) {
+                        let _ = window.app_handle().emit(events::RPC_STATUS, &status);
+                    }
+                } else if let Ok(status) = rpc.clear(&next.rpc) {
+                    let _ = window.app_handle().emit(events::RPC_STATUS, &status);
                 }
             }
         }

@@ -47,15 +47,23 @@ pub fn player_snapshot(
 
     record_history(&state, &settings, &snapshot)?;
 
-    let app_id = app_id_for(&settings.rpc, snapshot.is_music());
     let mut rpc = state
         .rpc
         .lock()
         .map_err(|_| AppError::State("RPC service unavailable".into()))?;
 
-    let status = match build_activity(&snapshot, &settings.rpc, &settings.general.language) {
-        Some(activity) => rpc.update(&activity, &settings.rpc, app_id)?,
-        None => rpc.clear(&settings.rpc)?,
+    let status = if !settings.rpc.enabled {
+        if rpc.status().state != "disabled" {
+            rpc.clear(&settings.rpc)?
+        } else {
+            RpcStatus::disabled()
+        }
+    } else {
+        let app_id = app_id_for(&settings.rpc, snapshot.is_music());
+        match build_activity(&snapshot, &settings.rpc, &settings.general.language) {
+            Some(activity) => rpc.update(&activity, &settings.rpc, app_id)?,
+            None => rpc.clear(&settings.rpc)?,
+        }
     };
 
     let _ = window.app_handle().emit(events::RPC_STATUS, &status);

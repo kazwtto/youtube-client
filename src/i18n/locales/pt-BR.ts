@@ -151,6 +151,7 @@ export const ptBR: Record<TranslationKey, string> = {
   "history.cleared": "Histórico limpo.",
   "history.viewList": "Exibição em lista",
   "history.viewGrid": "Exibição em grade",
+  "history.viewColumns": "Exibição em colunas por data",
   "history.copyLink": "Copiar link do vídeo",
   "history.linkCopied": "Link copiado para a área de transferência!",
   "history.filterAll": "Todos",

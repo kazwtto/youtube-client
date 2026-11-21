@@ -44,6 +44,9 @@ export class Router {
     this.current = id;
 
     let targetContainer = this.containers.get(id);
+    if (!changedRoute && targetContainer && !targetContainer.hidden) {
+      return;
+    }
     if (!targetContainer) {
       targetContainer = document.createElement("div");
       targetContainer.className = `page-container page-container--${id}`;
@@ -71,7 +74,9 @@ export class Router {
         await rendering;
         if (navigation !== this.navigation) return;
       }
-      targetContainer.dispatchEvent(new CustomEvent("page:activated", { bubbles: true }));
+      if (changedRoute) {
+        targetContainer.dispatchEvent(new CustomEvent("page:activated", { bubbles: true }));
+      }
     }
 
     const activateTarget = (): void => {

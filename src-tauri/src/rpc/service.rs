@@ -100,6 +100,9 @@ impl RpcService {
             .lock()
             .map_err(|_| crate::core::error::AppError::State("RPC state lock poisoned".into()))?;
 
+        if !settings.enabled {
+            state.status = RpcStatus::disabled();
+        }
         state.pending = Some(RpcCommand {
             activity: None,
             settings: settings.clone(),
@@ -226,7 +229,7 @@ fn worker_loop(shared: Arc<(Mutex<SharedState>, Condvar)>, app: Option<AppHandle
 
         if !command.settings.enabled {
             if let Some(mut c) = client.take() {
-                let _ = c.clear_activity();
+                let _ = c.clear_activity().and_then(|_| c.recv().map(|_| ()));
                 let _ = c.close();
             }
             active_app_id = None;

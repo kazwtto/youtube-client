@@ -18,6 +18,8 @@
     "allow-history-resume-position",
     "allow-remember-youtube-page",
     "allow-youtube-titlebar-icons-snapshot",
+    "allow-youtube-nav-state",
+    "allow-youtube-voice-state",
     "allow-set-native-pip-active",
     "allow-native-pip-return",
     "allow-youtube-surface-painted"

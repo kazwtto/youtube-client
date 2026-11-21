@@ -390,12 +390,18 @@
   };
   window.__ytdesktopActivateVoiceSearch = () => {
     if (window !== window.top) return false;
+    ensureVoiceDialogStyles();
     const roots = [document];
     let hostFallback = null;
     for (let index = 0; index < roots.length; index += 1) {
       const root = roots[index];
       const button = root.querySelector("#voice-search-button button, #voice-search-button [role=button], button#voice-search-button");
-      if (button instanceof HTMLElement) { button.click(); return true; }
+      if (button instanceof HTMLElement) {
+        button.click();
+        window.setTimeout(reportVoiceState, 60);
+        window.setTimeout(reportVoiceState, 240);
+        return true;
+      }
       const host = root.querySelector("#voice-search-button");
       if (host instanceof HTMLElement) {
         hostFallback ||= host;
@@ -405,10 +411,32 @@
         if (element.shadowRoot) roots.push(element.shadowRoot);
       });
     }
-    if (hostFallback) { hostFallback.click(); return true; }
+    if (hostFallback) {
+      hostFallback.click();
+      window.setTimeout(reportVoiceState, 60);
+      window.setTimeout(reportVoiceState, 240);
+      return true;
+    }
     return false;
   };
   window.__ytdesktopReportTitlebarIcons = reportTitlebarIcons;
+
+  let lastNavSignature = "";
+  function reportNavState(force = false) {
+    if (window !== window.top || !canInvoke()) return;
+    const nav = window.navigation;
+    const canGoBack = nav && typeof nav.canGoBack === "boolean"
+      ? nav.canGoBack
+      : window.history.length > 1;
+    const canGoForward = nav && typeof nav.canGoForward === "boolean"
+      ? nav.canGoForward
+      : false;
+    const signature = `${canGoBack}:${canGoForward}`;
+    if (!force && signature === lastNavSignature) return;
+    lastNavSignature = signature;
+    window.__TAURI_INTERNALS__.invoke("youtube_nav_state", { canGoBack, canGoForward }).catch(() => {});
+  }
+  window.__ytdesktopReportNavState = () => reportNavState(true);
 
   function send(snapshot) {
     if (!canInvoke()) {
@@ -603,10 +631,12 @@
       report();
       reportAuth();
       reportTitlebarIcons();
+      reportNavState();
     }, 2000);
     report();
     reportAuth();
     reportTitlebarIcons();
+    reportNavState(true);
   }
 
   window.addEventListener("yt-navigate-finish", () => {
@@ -617,7 +647,13 @@
     reportAuth();
     lastTitlebarIconsSignature = "";
     reportTitlebarIcons();
+    reportNavState();
   });
+
+  window.addEventListener("popstate", () => reportNavState());
+  if (window.navigation && typeof window.navigation.addEventListener === "function") {
+    window.navigation.addEventListener("currententrychange", () => reportNavState());
+  }
 
   window.addEventListener("beforeunload", () => {
     documentUnloading = true;
@@ -633,22 +669,162 @@
     send(EMPTY_SNAPSHOT);
   });
 
-  document.addEventListener("enterpictureinpicture", () => {
+  let nativePipActive = false;
+  let nativePipLeaving = false;
+  let nativePipWasPlaying = false;
+  let nativePipOpenerFocused = false;
+
+  const syncNativePipPlaying = (event) => {
+    if (!nativePipActive) return;
+    const video = event.target instanceof HTMLVideoElement ? event.target : document.querySelector("video");
+    if (!video) return;
+    if (event.type === "play") nativePipWasPlaying = true;
+    else if (event.type === "pause" || event.type === "ended") nativePipWasPlaying = false;
+  };
+
+  window.addEventListener("focus", () => {
+    if (nativePipActive || nativePipLeaving) nativePipOpenerFocused = true;
+  }, true);
+
+  document.addEventListener("enterpictureinpicture", (event) => {
     if (window !== window.top || !canInvoke()) return;
+    const video = event.target instanceof HTMLVideoElement ? event.target : document.querySelector("video");
+    nativePipActive = true;
+    nativePipLeaving = false;
+    nativePipWasPlaying = Boolean(video && !video.paused && !video.ended);
+    nativePipOpenerFocused = false;
     window.__TAURI_INTERNALS__.invoke("set_native_pip_active", { active: true }).catch(() => {});
   }, true);
-  document.addEventListener("leavepictureinpicture", () => {
+
+  document.addEventListener("leavepictureinpicture", (event) => {
     if (window !== window.top || !canInvoke()) return;
+    const video = event.target instanceof HTMLVideoElement ? event.target : document.querySelector("video");
+    const wasPlaying = nativePipWasPlaying;
+    nativePipActive = false;
+    nativePipLeaving = true;
+    nativePipWasPlaying = false;
+
     if (documentUnloading) {
+      nativePipLeaving = false;
       window.__TAURI_INTERNALS__.invoke("set_native_pip_active", { active: false }).catch(() => {});
       return;
     }
-    window.__TAURI_INTERNALS__.invoke("native_pip_return").catch(() => {});
+
+    // Chromium pauses playback when closing PiP via [X], whereas "Back to tab"
+    // keeps playing or focuses the opener. Defer slightly so the pause/focus
+    // events settle before deciding whether to restore the main window.
+    window.setTimeout(() => {
+      nativePipLeaving = false;
+      const paused = Boolean(video && video.paused);
+      const closedWithoutReturn = (wasPlaying && paused) || (paused && !nativePipOpenerFocused);
+      nativePipOpenerFocused = false;
+      if (closedWithoutReturn) {
+        window.__TAURI_INTERNALS__.invoke("set_native_pip_active", { active: false }).catch(() => {});
+      } else {
+        window.__TAURI_INTERNALS__.invoke("native_pip_return").catch(() => {});
+      }
+    }, 80);
   }, true);
 
-  document.addEventListener("play", report, true);
-  document.addEventListener("pause", report, true);
-  document.addEventListener("ended", report, true);
+  document.addEventListener("play", (event) => { syncNativePipPlaying(event); report(); }, true);
+  document.addEventListener("pause", (event) => { syncNativePipPlaying(event); report(); }, true);
+  document.addEventListener("ended", (event) => { syncNativePipPlaying(event); report(); }, true);
+
+  const VOICE_DIALOG_STYLE_ID = "ytdesktop-voice-dialog-fix";
+  const VOICE_DIALOG_CSS = `
+    tp-yt-paper-dialog:has(ytd-voice-search-dialog-renderer) {
+      position: fixed !important;
+      inset: 50% auto auto 50% !important;
+      transform: translate(-50%, -50%) !important;
+      margin: 0 !important;
+      width: min(560px, calc(100vw - 32px)) !important;
+      max-width: calc(100vw - 32px) !important;
+      max-height: calc(100vh - 32px) !important;
+      box-sizing: border-box !important;
+      overflow-x: hidden !important;
+      overflow-y: auto !important;
+    }
+    ytd-voice-search-dialog-renderer {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      box-sizing: border-box !important;
+    }
+    ytd-voice-search-dialog-renderer #container {
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+      padding: 20px 24px 28px !important;
+    }
+    ytd-voice-search-dialog-renderer #prompt,
+    ytd-voice-search-dialog-renderer #error-message,
+    ytd-voice-search-dialog-renderer #microphone-container {
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+    }
+    @media (max-width: 560px) {
+      tp-yt-paper-dialog:has(ytd-voice-search-dialog-renderer) {
+        width: calc(100vw - 24px) !important;
+        max-width: calc(100vw - 24px) !important;
+      }
+      ytd-voice-search-dialog-renderer #container {
+        padding: 16px 16px 24px !important;
+      }
+    }
+  `;
+
+  function ensureVoiceDialogStyles() {
+    if (window !== window.top || !document.head) return;
+    if (document.getElementById(VOICE_DIALOG_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = VOICE_DIALOG_STYLE_ID;
+    style.textContent = VOICE_DIALOG_CSS;
+    document.head.appendChild(style);
+  }
+
+  let lastVoiceActive = null;
+  function isVoiceDialogOpen() {
+    const renderer = document.querySelector("ytd-voice-search-dialog-renderer");
+    if (!renderer) return false;
+    const dialog = renderer.closest("tp-yt-paper-dialog");
+    if (!dialog) return false;
+    if (dialog.hasAttribute("aria-hidden") && dialog.getAttribute("aria-hidden") === "true") return false;
+    if (dialog.hasAttribute("opened")) return true;
+    const computed = window.getComputedStyle(dialog);
+    return computed.display !== "none" && computed.visibility !== "hidden";
+  }
+
+  function reportVoiceState() {
+    if (window !== window.top || !canInvoke()) return;
+    const active = isVoiceDialogOpen();
+    if (active === lastVoiceActive) return;
+    lastVoiceActive = active;
+    if (active) ensureVoiceDialogStyles();
+    window.__TAURI_INTERNALS__.invoke("youtube_voice_state", { active }).catch(() => {});
+  }
+
+  ensureVoiceDialogStyles();
+  const voiceObserver = new MutationObserver(() => {
+    reportVoiceState();
+  });
+  const startVoiceObserver = () => {
+    ensureVoiceDialogStyles();
+    const target = document.querySelector("ytd-popup-container") || document.body || document.documentElement;
+    if (target) {
+      voiceObserver.observe(target, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["opened", "aria-hidden", "style"],
+      });
+    }
+    reportVoiceState();
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startVoiceObserver, { once: true });
+  } else {
+    startVoiceObserver();
+  }
 
   schedule();
 })();

@@ -149,6 +149,7 @@ export const en = {
   "history.cleared": "History cleared.",
   "history.viewList": "List view",
   "history.viewGrid": "Grid view",
+  "history.viewColumns": "Columns by date",
   "history.copyLink": "Copy video link",
   "history.linkCopied": "Link copied to clipboard!",
   "history.filterAll": "All",

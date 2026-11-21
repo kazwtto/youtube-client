@@ -12,6 +12,7 @@ import { render } from "solid-js/web";
 import { Icon, type IconName, type YoutubeIconName } from "../components/icons";
 import { initI18n, onLanguageChange, t, type TranslationKey } from "../i18n";
 import type { AuthSnapshot } from "../lib/api";
+import { isMotionEnabled, playElementMotion, stopElementMotion } from "../lib/motion";
 import { initTheme } from "../theme/provider";
 import { APP_SECTIONS } from "../app/navigation";
 
@@ -63,8 +64,49 @@ function MenuView() {
   let avatarImage!: HTMLImageElement;
   let unlisten: UnlistenFn | undefined;
   let disposed = false;
+  let isClosing = false;
 
-  const closeMenu = (): void => void invoke("hide_context_menu").catch(() => undefined);
+  const playEntrance = (): void => {
+    isClosing = false;
+    stopElementMotion(host);
+    if (!host) return;
+    requestAnimationFrame(() => {
+      if (isClosing || !host) return;
+      playElementMotion(
+        host,
+        { opacity: [0, 1], scale: [0.96, 1], y: [-6, 0] },
+        { duration: 0.16 },
+      );
+    });
+  };
+
+  const closeMenu = (): void => {
+    if (isClosing) return;
+    void emit("menu://closing").catch(() => undefined);
+    if (!isMotionEnabled() || !host) {
+      void invoke("hide_context_menu").catch(() => undefined);
+      return;
+    }
+    isClosing = true;
+    const control = playElementMotion(
+      host,
+      { opacity: [1, 0], scale: [1, 0.96], y: [0, -4] },
+      { duration: 0.12, keepStyles: true },
+    );
+    if (!control) {
+      isClosing = false;
+      void invoke("hide_context_menu").catch(() => undefined);
+      return;
+    }
+    void control.finished.finally(() => {
+      if (!isClosing) return;
+      isClosing = false;
+      void invoke("hide_context_menu")
+        .catch(() => undefined)
+        .finally(() => stopElementMotion(host));
+    });
+  };
+
   const handleAction = (action: string): void => {
     closeMenu();
     if (action === "login") {
@@ -110,6 +152,7 @@ function MenuView() {
       setAuth(event.payload.auth);
       setMode(event.payload.mode ?? "account");
       setActiveRoute(event.payload.activeRoute ?? "home");
+      playEntrance();
     }).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;

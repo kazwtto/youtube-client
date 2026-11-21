@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Permissions for the app's local interface.",
-  "windows": ["main", "menu", "auth_modal"],
+  "windows": ["main", "auth_modal"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",
@@ -17,9 +17,6 @@
     "allow-yt-navigate",
     "allow-yt-play-video",
     "allow-yt-suggest",
-    "allow-show-context-menu",
-    "allow-hide-context-menu",
-    "allow-is-context-menu-visible",
     "allow-open-auth-modal",
     "allow-close-auth-modal",
     "allow-reload-auth-modal",
@@ -52,6 +49,7 @@
     "allow-auth-snapshot",
     "allow-request-auth-snapshot",
     "allow-youtube-loading-state",
-    "allow-request-youtube-titlebar-icons"
+    "allow-request-youtube-titlebar-icons",
+    "allow-request-youtube-nav-state"
   ]
 }

@@ -8,6 +8,7 @@ import { createStore, reconcile } from "solid-js/store";
 import { Icon } from "../components/icons";
 import { t } from "../i18n";
 import { api, type ExtensionSummary } from "../lib/api";
+import { isMotionEnabled, playElementMotion, stopElementMotion } from "../lib/motion";
 
 interface ExtensionsPageProps {
   host: HTMLElement;
@@ -79,7 +80,45 @@ function ExtensionsPage(props: ExtensionsPageProps) {
   let dialog!: HTMLDialogElement;
   let snackTimer: number | undefined;
   let refreshRequest = 0;
+  let dialogClosing = false;
   let disposed = false;
+
+  const openDialog = (): void => {
+    if (!dialog || dialog.open) return;
+    dialogClosing = false;
+    stopElementMotion(dialog);
+    dialog.showModal();
+    requestAnimationFrame(() => {
+      playElementMotion(dialog, { opacity: [0, 1], scale: [0.95, 1], y: [8, 0] }, { duration: 0.18 });
+    });
+  };
+
+  const closeDialog = (afterClose?: () => void): void => {
+    if (!dialog || !dialog.open || dialogClosing) return;
+    if (!isMotionEnabled()) {
+      dialog.close();
+      afterClose?.();
+      return;
+    }
+    dialogClosing = true;
+    const control = playElementMotion(
+      dialog,
+      { opacity: [1, 0], scale: [1, 0.96], y: [0, 6] },
+      { duration: 0.14, keepStyles: true },
+    );
+    const finish = (): void => {
+      if (!dialogClosing) return;
+      dialogClosing = false;
+      stopElementMotion(dialog);
+      if (dialog.open) dialog.close();
+      afterClose?.();
+    };
+    if (control) {
+      void control.finished.finally(finish);
+    } else {
+      finish();
+    }
+  };
   const unlisteners: UnlistenFn[] = [];
 
   const notify = (message: string, kind: "idle" | "busy" | "error" = "idle"): void => {
@@ -263,7 +302,7 @@ function ExtensionsPage(props: ExtensionsPageProps) {
             >
               <Icon name="reload" size={18} />
             </button>
-            <button type="button" class="yt-button yt-button--tonal" disabled={installing()} onClick={() => dialog.showModal()}>
+            <button type="button" class="yt-button yt-button--tonal" disabled={installing()} onClick={openDialog}>
               <Icon name="plus" size={18} /><span>{t("extensions.add")}</span>
             </button>
           </div>
@@ -312,7 +351,18 @@ function ExtensionsPage(props: ExtensionsPageProps) {
         <p class="ext-snackbar" data-tone={tone()} role="status" aria-live="polite" hidden={!status()}>{status()}</p>
       </section>
 
-      <dialog class="yt-modal" aria-labelledby="extension-dialog-title" ref={dialog}>
+      <dialog
+        class="yt-modal"
+        aria-labelledby="extension-dialog-title"
+        ref={dialog}
+        onCancel={(event) => {
+          event.preventDefault();
+          closeDialog();
+        }}
+        onClick={(event) => {
+          if (event.target === dialog) closeDialog();
+        }}
+      >
         <form method="dialog" class="yt-modal__body">
           <h2 class="yt-modal__title" id="extension-dialog-title">{t("extensions.add")}</h2>
           <p class="yt-modal__text">{t("extensions.addBody")}</p>
@@ -321,8 +371,8 @@ function ExtensionsPage(props: ExtensionsPageProps) {
             <li><code>ytapp.json</code> — {t("extensions.kindNative")}</li>
           </ul>
           <div class="yt-modal__actions">
-            <button type="button" class="yt-button yt-button--text" onClick={() => dialog.close()}>{t("common.cancel")}</button>
-            <button type="button" class="yt-button yt-button--filled" disabled={installing()} onClick={() => { dialog.close(); void install(); }}>
+            <button type="button" class="yt-button yt-button--text" onClick={() => closeDialog()}>{t("common.cancel")}</button>
+            <button type="button" class="yt-button yt-button--filled" disabled={installing()} onClick={() => closeDialog(() => void install())}>
               <Icon name="folder" size={18} /><span>{t("extensions.pickFolder")}</span>
             </button>
           </div>

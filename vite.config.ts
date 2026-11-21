@@ -31,7 +31,6 @@ export default defineConfig({
       input: {
         main: resolve(projectRoot, "index.html"),
         pip: resolve(projectRoot, "pip.html"),
-        menu: resolve(projectRoot, "menu.html"),
         authModal: resolve(projectRoot, "auth-modal.html"),
       },
     },

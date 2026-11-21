@@ -8,12 +8,14 @@ import { getLocale, t, type TranslationKey } from "../i18n";
 import { api, type HistoryEntry } from "../lib/api";
 
 type DateFilter = "all" | "today" | "yesterday" | "week";
-type ViewMode = "list" | "grid";
+type ViewMode = "list" | "grid" | "columns";
 const HISTORY_PAGE_SIZE = 300;
 
 function readViewMode(): ViewMode {
   try {
-    return localStorage.getItem("yt_history_view") === "grid" ? "grid" : "list";
+    const saved = localStorage.getItem("yt_history_view");
+    if (saved === "grid" || saved === "columns") return saved;
+    return "list";
   } catch {
     return "list";
   }
@@ -172,14 +174,20 @@ function HistoryCard(props: HistoryCardProps) {
         >
           <Icon name="more" size={20} />
         </button>
-        <div id={menuId} class="history-menu" role="menu" hidden={props.openMenu() !== props.entry.id}>
-          <button type="button" class="history-menu__item" role="menuitem" onClick={() => props.play(props.entry.id)}>
+        <div
+          id={menuId}
+          class="yt-menu yt-menu--end history-menu"
+          classList={{ "is-open": props.openMenu() === props.entry.id }}
+          role="menu"
+          aria-hidden={props.openMenu() !== props.entry.id}
+        >
+          <button type="button" class="yt-menu__item history-menu__item" role="menuitem" onClick={() => props.play(props.entry.id)}>
             <Icon name="play" size={20} /><span>{t("history.play")}</span>
           </button>
-          <button type="button" class="history-menu__item" role="menuitem" onClick={() => props.copy(props.entry.id)}>
+          <button type="button" class="yt-menu__item history-menu__item" role="menuitem" onClick={() => props.copy(props.entry.id)}>
             <Icon name="copy" size={18} /><span>{t("history.copyLink")}</span>
           </button>
-          <button type="button" class="history-menu__item" role="menuitem" onClick={() => props.remove(props.entry.id)}>
+          <button type="button" class="yt-menu__item history-menu__item" role="menuitem" onClick={() => props.remove(props.entry.id)}>
             <Icon name="trash" size={18} /><span>{t("history.removeFromHistory")}</span>
           </button>
         </div>
@@ -400,10 +408,13 @@ function HistoryPage(props: { host: HTMLElement }) {
           <button type="button" class="history-view-btn" classList={{ "is-active": view() === "grid" }} title={t("history.viewGrid")} aria-label={t("history.viewGrid")} aria-pressed={view() === "grid"} onClick={() => { setView("grid"); saveViewMode("grid"); }}>
             <Icon name="grid" size={18} />
           </button>
+          <button type="button" class="history-view-btn" classList={{ "is-active": view() === "columns" }} title={t("history.viewColumns")} aria-label={t("history.viewColumns")} aria-pressed={view() === "columns"} onClick={() => { setView("columns"); saveViewMode("columns"); }}>
+            <Icon name="columns" size={18} />
+          </button>
         </div>
       </div>
 
-      <div class="history" classList={{ "history--grid": view() === "grid", "history--list": view() === "list" }}>
+      <div class="history" classList={{ "history--grid": view() === "grid", "history--list": view() === "list", "history--columns": view() === "columns" }}>
         <Show when={filtered().length > 0} fallback={
           <div class="yt-empty">
             <Icon name={query().trim() ? "search" : "clock"} size={query().trim() ? 20 : 56} />

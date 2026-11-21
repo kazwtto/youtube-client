@@ -13,7 +13,6 @@ use crate::theme::service::ThemeService;
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 pub const PIP_WINDOW_LABEL: &str = "pip";
-pub const MENU_WINDOW_LABEL: &str = "menu";
 pub const AUTH_MODAL_WINDOW_LABEL: &str = "auth_modal";
 pub const AUTH_UI_WEBVIEW_LABEL: &str = "auth_ui";
 pub const AUTH_WEB_WEBVIEW_LABEL: &str = "auth_web";
@@ -71,78 +70,10 @@ pub fn setup(
 
     layout_webviews(&window)?;
     observe_window(&window);
-    setup_menu_window(app, webview_data_dir)?;
     setup_auth_modal_window(app, webview_data_dir)?;
     crate::window::tray::setup(app)?;
 
     Ok(window)
-}
-
-fn setup_menu_window(app: &mut App, webview_data_dir: &Path) -> AppResult<()> {
-    let builder = tauri::WebviewWindowBuilder::new(
-        app,
-        MENU_WINDOW_LABEL,
-        tauri::WebviewUrl::App("menu.html".into()),
-    )
-    .title("Menu")
-    .inner_size(308.0, 274.0)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .resizable(false)
-    .visible(false)
-    .shadow(false)
-    .background_color(Color(0, 0, 0, 0))
-    .data_directory(webview_data_dir.join("ui"));
-
-    let menu_window = builder.build()?;
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::ffi::c_void;
-
-        #[link(name = "dwmapi")]
-        extern "system" {
-            fn DwmSetWindowAttribute(
-                hwnd: *mut c_void,
-                dwAttribute: u32,
-                pvAttribute: *const c_void,
-                cbAttribute: u32,
-            ) -> i32;
-        }
-
-        if let Ok(hwnd) = menu_window.hwnd() {
-            unsafe {
-                // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_DONOTROUND = 1
-                let corner_pref: u32 = 1;
-                let _ = DwmSetWindowAttribute(
-                    hwnd.0 as *mut c_void,
-                    33,
-                    &corner_pref as *const _ as *const c_void,
-                    std::mem::size_of::<u32>() as u32,
-                );
-
-                // DWMWA_BORDER_COLOR = 34, DWMWA_COLOR_NONE = 0xFFFFFFFE
-                let border_color: u32 = 0xFFFFFFFE;
-                let _ = DwmSetWindowAttribute(
-                    hwnd.0 as *mut c_void,
-                    34,
-                    &border_color as *const _ as *const c_void,
-                    std::mem::size_of::<u32>() as u32,
-                );
-            }
-        }
-    }
-
-    let handle = menu_window.clone();
-    menu_window.on_window_event(move |event| {
-        if let WindowEvent::Focused(false) = event {
-            let _ = handle.hide();
-        }
-    });
-
-    Ok(())
 }
 
 fn setup_auth_modal_window(app: &mut App, webview_data_dir: &Path) -> AppResult<()> {
@@ -525,7 +456,7 @@ fn add_youtube(
                             }
 
                             let _ = webview.eval(
-                                "if (window.__ytdesktopReportTitlebarIcons) window.__ytdesktopReportTitlebarIcons(); if (window.__ytdesktopRequestAuthSnapshot) window.__ytdesktopRequestAuthSnapshot();",
+                                "if (window.__ytdesktopReportTitlebarIcons) window.__ytdesktopReportTitlebarIcons(); if (window.__ytdesktopRequestAuthSnapshot) window.__ytdesktopRequestAuthSnapshot(); if (window.__ytdesktopReportNavState) window.__ytdesktopReportNavState();",
                             );
 
                             let (visible, initial_load) = app

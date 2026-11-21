@@ -36,6 +36,7 @@ function RpcPage(props: RpcPageProps) {
   let pending = false;
   let disposed = false;
   let unlisten: UnlistenFn | undefined;
+  let unlistenSettings: UnlistenFn | undefined;
   let editVersion = 0;
 
   onMount(() => {
@@ -45,11 +46,24 @@ function RpcPage(props: RpcPageProps) {
         else unlisten = stop;
       })
       .catch(() => undefined);
+
+    void listen<AppSettings>("settings://changed", (event) => {
+      setSettings(event.payload);
+      if (!saving && saveTimer === undefined) {
+        setDraft(event.payload.rpc);
+      }
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlistenSettings = stop;
+      })
+      .catch(() => undefined);
   });
 
   onCleanup(() => {
     disposed = true;
     unlisten?.();
+    unlistenSettings?.();
     if (saveTimer !== undefined) window.clearTimeout(saveTimer);
     if (messageTimer !== undefined) window.clearTimeout(messageTimer);
   });
@@ -65,7 +79,8 @@ function RpcPage(props: RpcPageProps) {
     saving = true;
     setError("");
     try {
-      const updated = await api.settingsUpdate({ ...settings(), rpc: draft() });
+      const latest = await api.settingsGet().catch(() => settings());
+      const updated = await api.settingsUpdate({ ...latest, rpc: draft() });
       setSettings(updated);
       if (editVersion === savedVersion) setDraft(updated.rpc);
       setStatus(await api.rpcStatus());

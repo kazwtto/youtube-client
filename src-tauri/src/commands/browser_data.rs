@@ -162,6 +162,7 @@ async fn read_browser_history(source: &BrowserHistorySource) -> AppResult<Vec<Wa
             position_secs: None,
             watched_secs: None,
             session_key: None,
+            profile_id: "default".into(),
         });
     }
     Ok(events)

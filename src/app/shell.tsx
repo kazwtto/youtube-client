@@ -3,14 +3,16 @@ import { createSignal, type Accessor } from "solid-js";
 import { render } from "solid-js/web";
 
 import { createTitlebar } from "../components/titlebar";
+import { TabBarView } from "../components/tab-bar";
+import { renderYoutubeContextMenu } from "../components/yt-context-menu";
 import { renderBrowserImportDialog } from "./browser-import-dialog";
 import { t } from "../i18n";
 import { api, type AppSettings, type AuthSnapshot, type RpcStatus, type YoutubeTitlebarIcons } from "../lib/api";
 import { renderExtensions } from "../pages/extensions";
-import { renderHistory } from "../pages/history";
+import { refreshHistoryBeforeOpen, renderHistory } from "../pages/history";
 import { renderHome } from "../pages/home";
 import { renderRpc } from "../pages/rpc";
-import { renderSettings } from "../pages/settings";
+import { renderSettings, setRequestedSettingsTab } from "../pages/settings";
 import { Router, type RouteId } from "./router";
 
 /// A page that has not loaded after this long is treated as a failure, which is
@@ -51,6 +53,8 @@ export function createShell(root: HTMLElement): void {
 
   const shell = document.createElement("div");
   shell.className = "shell";
+  shell.dataset.tabLayout = "command";
+  shell.dataset.sidebarExpanded = "true";
 
   const content = document.createElement("main");
   content.className = "content";
@@ -64,7 +68,7 @@ export function createShell(root: HTMLElement): void {
   router
     .register({ id: "home", render: renderHome, preservePreviousUntilActivated: true })
     .register({ id: "settings", render: renderSettings })
-    .register({ id: "history", render: renderHistory })
+    .register({ id: "history", render: renderHistory, beforeActivate: refreshHistoryBeforeOpen })
     .register({ id: "extensions", render: renderExtensions })
     .register({ id: "rpc", render: renderRpc });
 
@@ -81,13 +85,39 @@ export function createShell(root: HTMLElement): void {
     }
   });
 
+  void listen<string>("app://navigate", (event) => {
+    if (typeof event.payload === "string") {
+      navigate(event.payload as RouteId);
+    }
+  }).catch(() => undefined);
+
+  document.addEventListener("app:open-settings-tab", (event) => {
+    if (event instanceof CustomEvent && typeof event.detail === "string") {
+      setRequestedSettingsTab(event.detail);
+      navigate("settings");
+    }
+  });
+
   const titlebar = createTitlebar({ onNavigate: navigate, onRefreshAuth: () => refreshAuth() });
 
-  shell.append(titlebar.element, content, loading);
+  const tabBarHost = document.createElement("div");
+  tabBarHost.className = "tab-bar-host";
+  shell.append(titlebar.element, content, loading, tabBarHost);
+  render(() => <TabBarView shell={shell} />, tabBarHost);
   const browserImportHost = document.createElement("div");
   browserImportHost.className = "browser-import-host";
-  root.append(shell, browserImportHost);
+  const ytContextMenuHost = document.createElement("div");
+  ytContextMenuHost.className = "yt-context-menu-host";
+  root.append(shell, browserImportHost, ytContextMenuHost);
   renderBrowserImportDialog(browserImportHost);
+  renderYoutubeContextMenu(ytContextMenuHost);
+
+  document.addEventListener("contextmenu", (event) => {
+    if (event.defaultPrevented) return;
+    const target = event.target instanceof Element ? event.target : event.target instanceof Node ? event.target.parentElement : null;
+    if (target?.closest("input, textarea, [contenteditable='true'], [contenteditable='']")) return;
+    event.preventDefault();
+  });
 
   let youtubeLoading = true;
   let slowTimer: number | undefined;
@@ -183,12 +213,7 @@ export function createShell(root: HTMLElement): void {
   }).then(() => api.requestYoutubeTitlebarIcons()).catch(() => undefined);
 
   let loadingEventVersion = 0;
-  const applyYoutubeLoading = async (loading: boolean, version: number): Promise<void> => {
-    // Keep the opaque launcher above YouTube until its first visible frame is
-    // confirmed. Lower it before hiding the cover, after that frame exists.
-    if (currentRoute === "home") {
-      await api.setLauncherRouteActive(loading).catch(() => undefined);
-    }
+  const applyYoutubeLoading = (loading: boolean, version: number): void => {
     if (version !== loadingEventVersion) return;
     youtubeLoading = loading;
     syncLoading();
@@ -196,13 +221,13 @@ export function createShell(root: HTMLElement): void {
 
   void listen<boolean>("youtube://loading", (event) => {
     const version = ++loadingEventVersion;
-    void applyYoutubeLoading(event.payload, version);
+    applyYoutubeLoading(event.payload, version);
   }).then(async () => {
     const version = loadingEventVersion;
     try {
       const loadingState = await api.youtubeLoadingState();
       if (version === loadingEventVersion) {
-        await applyYoutubeLoading(loadingState, version);
+        applyYoutubeLoading(loadingState, version);
       }
     } catch {
       // The event listener remains the source of updates if reconciliation fails.
@@ -230,7 +255,7 @@ export function createShell(root: HTMLElement): void {
 
       content.dataset.youtube = "true";
       content.classList.remove("content--youtube-exit");
-      await api.setLauncherRouteActive(youtubeLoading).catch(() => undefined);
+      await api.setLauncherRouteActive(false).catch(() => undefined);
       if (update !== routeUpdate) {
         if (router.currentId !== "home") {
           await api.setLauncherRouteActive(true).catch(() => undefined);

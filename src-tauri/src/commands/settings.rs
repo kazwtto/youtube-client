@@ -18,7 +18,7 @@ pub fn settings_get(state: State<'_, AppState>) -> AppResult<AppSettings> {
 }
 
 #[tauri::command]
-pub fn settings_update(
+pub async fn settings_update(
     window: tauri::Window,
     state: State<'_, AppState>,
     settings: AppSettings,
@@ -63,29 +63,46 @@ pub fn settings_update(
         let _ = window.app_handle().emit(events::THEME_CHANGED, &resolved);
     }
 
-    let _ = window.app_handle().emit(events::SETTINGS_CHANGED, &next);
+    state
+        .sidebar_width
+        .store(next.tabs.sidebar_width.clamp(148, 220), std::sync::atomic::Ordering::SeqCst);
+    state
+        .sidebar_expanded
+        .store(next.tabs.sidebar_expanded, std::sync::atomic::Ordering::SeqCst);
 
-    // Synchronize Discord RPC immediately with the updated settings
-    if let Ok(mut rpc) = state.rpc.lock() {
-        if !next.rpc.enabled {
-            if let Ok(status) = rpc.clear(&next.rpc) {
-                let _ = window.app_handle().emit(events::RPC_STATUS, &status);
-            }
-        } else if let Ok(last) = state.last_player.lock() {
-            if let Some(snapshot) = last.as_ref() {
-                let app_id = crate::rpc::model::app_id_for(&next.rpc, snapshot.is_music());
-                if let Some(activity) =
-                    crate::rpc::model::build_activity(snapshot, &next.rpc, &next.general.language)
-                {
-                    if let Ok(status) = rpc.update(&activity, &next.rpc, app_id) {
-                        let _ = window.app_handle().emit(events::RPC_STATUS, &status);
-                    }
-                } else if let Ok(status) = rpc.clear(&next.rpc) {
-                    let _ = window.app_handle().emit(events::RPC_STATUS, &status);
+    if !next.tabs.enabled || next.tabs.layout != crate::settings::model::TabLayout::SidebarHover {
+        state.sidebar_peek.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+    if !next.tabs.enabled || next.tabs.layout != crate::settings::model::TabLayout::Floating {
+        state.dock_peek.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    let peek_mode = if !next.tabs.enabled {
+        "none"
+    } else {
+        match next.tabs.layout {
+            crate::settings::model::TabLayout::SidebarHover => "sidebarHover",
+            crate::settings::model::TabLayout::Floating => "floating",
+            _ => "none",
+        }
+    };
+    let peek_js = format!("window.__ytdesktopPeekMode = \"{peek_mode}\";");
+    if let Ok(manager) = state.tabs.lock() {
+        for tab in manager.snapshot().tabs {
+            if !tab.sleeping {
+                if let Some(wv) = window.get_webview(&tab.webview_label) {
+                    let _ = wv.eval(&peek_js);
                 }
             }
         }
     }
+
+    let _ = crate::window::layout::sync_tab_dock_webview(&window, &state.paths.webview_data_dir);
+    let _ = crate::window::layout::layout_webviews(&window);
+    let _ = window.app_handle().emit(events::SETTINGS_CHANGED, &next);
+
+    // Synchronize Discord RPC immediately with the updated settings
+    let _ = crate::commands::player::reconcile_rpc(window.app_handle(), &state);
 
     Ok(next)
 }

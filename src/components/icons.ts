@@ -21,6 +21,7 @@ import maximizeSvg from "../assets/icons/launcher/maximize.svg?raw";
 import minimizeSvg from "../assets/icons/launcher/minimize.svg?raw";
 import moreSvg from "../assets/icons/launcher/more.svg?raw";
 import paletteSvg from "../assets/icons/launcher/palette.svg?raw";
+import pinSvg from "../assets/icons/launcher/pin.svg?raw";
 import pipScreenSvg from "../assets/icons/launcher/pip-screen.svg?raw";
 import pipSvg from "../assets/icons/launcher/pip.svg?raw";
 import playSvg from "../assets/icons/launcher/play.svg?raw";
@@ -29,7 +30,13 @@ import reloadSvg from "../assets/icons/launcher/reload.svg?raw";
 import restoreSvg from "../assets/icons/launcher/restore.svg?raw";
 import searchSvg from "../assets/icons/launcher/search.svg?raw";
 import settingsSvg from "../assets/icons/launcher/settings.svg?raw";
+import shareSvg from "../assets/icons/launcher/share.svg?raw";
+import sidebarSvg from "../assets/icons/launcher/sidebar.svg?raw";
+import sleepSvg from "../assets/icons/launcher/sleep.svg?raw";
+import tabIsolatedSvg from "../assets/icons/launcher/tab-isolated.svg?raw";
 import trashSvg from "../assets/icons/launcher/trash.svg?raw";
+import volumeMuteSvg from "../assets/icons/launcher/volume-mute.svg?raw";
+import volumeSvg from "../assets/icons/launcher/volume.svg?raw";
 
 // YouTube icons (SVGs imported directly from src/assets/icons/youtube/)
 import ytAccountSvg from "../assets/icons/youtube/account.svg?raw";
@@ -62,6 +69,7 @@ export type IconName =
   | "maximize"
   | "restore"
   | "pip"
+  | "pin"
   | "close"
   | "chevron"
   | "check"
@@ -77,7 +85,13 @@ export type IconName =
   | "grid"
   | "columns"
   | "copy"
-  | "pip-screen";
+  | "share"
+  | "pip-screen"
+  | "sidebar"
+  | "sleep"
+  | "tab-isolated"
+  | "volume"
+  | "volume-mute";
 
 export type YoutubeIconName =
   | "brand"
@@ -119,6 +133,7 @@ const LAUNCHER_ICONS: Record<IconName, string> = {
   maximize: maximizeSvg,
   restore: restoreSvg,
   pip: pipSvg,
+  pin: pinSvg,
   close: closeSvg,
   chevron: chevronSvg,
   check: checkSvg,
@@ -134,7 +149,13 @@ const LAUNCHER_ICONS: Record<IconName, string> = {
   grid: gridSvg,
   columns: columnsSvg,
   copy: copySvg,
+  share: shareSvg,
   "pip-screen": pipScreenSvg,
+  sidebar: sidebarSvg,
+  sleep: sleepSvg,
+  "tab-isolated": tabIsolatedSvg,
+  volume: volumeSvg,
+  "volume-mute": volumeMuteSvg,
 };
 
 const YOUTUBE_ICONS: Record<YoutubeIconName, string> = {

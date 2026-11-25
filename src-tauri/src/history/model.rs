@@ -23,6 +23,7 @@ pub struct HistoryQuery {
     pub search: String,
     pub limit: i64,
     pub offset: i64,
+    pub profile_id: Option<String>,
 }
 
 impl Default for HistoryQuery {
@@ -31,8 +32,13 @@ impl Default for HistoryQuery {
             search: String::new(),
             limit: 50,
             offset: 0,
+            profile_id: None,
         }
     }
+}
+
+fn default_profile_id() -> String {
+    "default".to_string()
 }
 
 /// Playback event recorded by the player.
@@ -55,4 +61,6 @@ pub struct WatchEventInput {
     pub watched_secs: Option<f64>,
     #[serde(default)]
     pub session_key: Option<String>,
+    #[serde(default = "default_profile_id")]
+    pub profile_id: String,
 }

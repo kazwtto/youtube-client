@@ -14,7 +14,6 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tauri::Manager;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2BrowserExtension, ICoreWebView2BrowserExtensionList, ICoreWebView2Profile7,
     ICoreWebView2_13,
@@ -27,7 +26,7 @@ use windows_core::{Interface, HSTRING, PWSTR};
 
 use crate::core::error::{AppError, AppResult};
 use crate::extensions::ExtensionSummary;
-use crate::window::layout::YOUTUBE_WEBVIEW_LABEL;
+use crate::window::layout::active_youtube_webview;
 
 type Outcome = Result<bool, String>;
 
@@ -51,8 +50,7 @@ pub fn sync(window: &tauri::Window, extensions: &[ExtensionSummary]) -> AppResul
         .map(|extension| extension.name.clone())
         .collect();
 
-    let webview = window
-        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+    let webview = active_youtube_webview(window)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
 
     let (sender, receiver) = mpsc::channel::<Outcome>();

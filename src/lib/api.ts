@@ -13,6 +13,8 @@ export interface ThemeSettings {
   hideScrollbars: boolean;
 }
 
+export type RpcTabMode = "smart" | "activeTabOnly" | "primaryPlaying";
+
 export interface RpcSettings {
   enabled: boolean;
   appId: string;
@@ -21,6 +23,7 @@ export interface RpcSettings {
   showChannelButton: boolean;
   showTimestamps: boolean;
   idleWhenPaused: boolean;
+  tabMode?: RpcTabMode;
 }
 
 export interface HistorySettings {
@@ -92,6 +95,61 @@ export interface PipSettings {
   y?: number | null;
 }
 
+export type TabLayout = "command" | "bottom" | "floating" | "sidebar" | "sidebarHover";
+
+export interface TabSettings {
+  enabled: boolean;
+  layout: TabLayout;
+  sidebarExpanded: boolean;
+  sidebarWidth: number;
+  autoSleepMinutes: number;
+  confirmCloseWithMultiple: boolean;
+  defaultIsolated: boolean;
+}
+
+export interface TabState {
+  id: string;
+  webviewLabel: string;
+  isolated: boolean;
+  title: string;
+  url: string;
+  thumbnailUrl: string | null;
+  accountName: string | null;
+  accountHandle: string | null;
+  avatarUrl: string | null;
+  pinned: boolean;
+  muted: boolean;
+  sleeping: boolean;
+  needsReload: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  isPlaying: boolean;
+  lastActiveAt: number;
+}
+
+export interface TabSessionSnapshot {
+  tabs: TabState[];
+  activeTabId: string;
+}
+
+export interface UpdateSettings {
+  autoCheck: boolean;
+  includePrerelease: boolean;
+}
+
+export interface UpdateCheckResult {
+  currentVersion: string;
+  latestVersion: string | null;
+  releaseName: string | null;
+  releaseNotes: string | null;
+  releaseUrl: string;
+  downloadUrl: string | null;
+  publishedAt: string | null;
+  isPrerelease: boolean;
+  updateAvailable: boolean;
+  checkedAt: number;
+}
+
 export interface AppSettings {
   settingsVersion: number;
   window: WindowSettings;
@@ -101,6 +159,8 @@ export interface AppSettings {
   history: HistorySettings;
   extensions: ExtensionSettings;
   general: GeneralSettings;
+  tabs: TabSettings;
+  updates: UpdateSettings;
 }
 
 export interface ResolvedTheme {
@@ -149,6 +209,7 @@ export interface HistoryQuery {
   search: string;
   limit: number;
   offset: number;
+  profileId?: string;
 }
 
 export interface RpcStatus {
@@ -223,9 +284,74 @@ export const api = {
   historyList: (query: HistoryQuery): Promise<HistoryEntry[]> =>
     invoke<HistoryEntry[]>("history_list", { query }),
 
-  historyClear: (): Promise<void> => invoke<void>("history_clear"),
+  historyClear: (profileId?: string): Promise<void> =>
+    invoke<void>("history_clear", { profileId }),
 
-  historyDelete: (id: string): Promise<void> => invoke<void>("history_delete", { id }),
+  historyDelete: (id: string, profileId?: string): Promise<void> =>
+    invoke<void>("history_delete", { id, profileId }),
+
+  tabsSnapshot: (): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tabs_snapshot"),
+
+  tabCreate: (args?: { isolated?: boolean; url?: string; activate?: boolean }): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_create", args ?? {}),
+
+  tabActivate: (tabId: string): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_activate", { tabId }),
+
+  tabClose: (tabId: string): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_close", { tabId }),
+
+  tabCloseOthers: (tabId: string): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_close_others", { tabId }),
+
+  tabReopenClosed: (): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_reopen_closed"),
+
+  tabReorder: (orderedIds: string[]): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_reorder", { orderedIds }),
+
+  tabSetPinned: (tabId: string, pinned: boolean): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_set_pinned", { tabId, pinned }),
+
+  tabSetMuted: (tabId: string, muted: boolean): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_set_muted", { tabId, muted }),
+
+  tabDuplicate: (tabId: string, isolated?: boolean): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_duplicate", { tabId, isolated }),
+
+  tabSleep: (tabId: string): Promise<TabSessionSnapshot> =>
+    invoke<TabSessionSnapshot>("tab_sleep", { tabId }),
+
+  tabSidebarPeek: (peek: boolean): Promise<void> =>
+    invoke<void>("tab_sidebar_peek", { peek }),
+
+  tabDockPeek: (peek: boolean): Promise<void> =>
+    invoke<void>("tab_dock_peek", { peek }),
+
+  setSidebarWidth: (width: number, expanded?: boolean, persist?: boolean): Promise<void> =>
+    invoke<void>("set_sidebar_width", { width, expanded, persist }),
+
+  tabOpenActionMenu: (): Promise<void> =>
+    invoke<void>("tab_open_action_menu"),
+
+  updatesCheck: (includePrerelease?: boolean): Promise<UpdateCheckResult> =>
+    invoke<UpdateCheckResult>("updates_check", { includePrerelease }),
+
+  updatesLastStatus: (): Promise<UpdateCheckResult | null> =>
+    invoke<UpdateCheckResult | null>("updates_last_status"),
+
+  updatesOpenUrl: (url: string): Promise<void> =>
+    invoke<void>("updates_open_url", { url }),
+
+  tabsClearIsolatedData: (): Promise<number> =>
+    invoke<number>("tabs_clear_isolated_data"),
+
+  setTabDockWidth: (width: number): Promise<void> =>
+    invoke<void>("set_tab_dock_width", { width }),
+
+  tabOpenContextMenu: (tabId: string, x: number, y: number): Promise<void> =>
+    invoke<void>("tab_open_context_menu", { tabId, x, y }),
 
   browserDataSources: (): Promise<BrowserDataSource[]> =>
     invoke<BrowserDataSource[]>("browser_data_sources"),

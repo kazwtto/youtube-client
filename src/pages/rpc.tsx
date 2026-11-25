@@ -3,7 +3,8 @@ import { render } from "solid-js/web";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { t, type TranslationKey } from "../i18n";
-import { api, type AppSettings, type RpcSettings, type RpcStatus } from "../lib/api";
+import { api, type AppSettings, type RpcSettings, type RpcStatus, type RpcTabMode } from "../lib/api";
+import { Select } from "../components/select";
 import { SwitchSetting } from "../components/setting-row";
 
 function statusLabel(status: RpcStatus): string {
@@ -106,7 +107,7 @@ function RpcPage(props: RpcPageProps) {
     }, 0);
   };
 
-  const update = (key: keyof RpcSettings, value: boolean): void => {
+  const update = <K extends keyof RpcSettings>(key: K, value: RpcSettings[K]): void => {
     editVersion += 1;
     setDraft((previous) => ({ ...previous, [key]: value }));
     queueSave();
@@ -133,6 +134,25 @@ function RpcPage(props: RpcPageProps) {
         <SwitchSetting checked={draft().showVideoButton} label={t("rpc.videoButton")} onChange={(event) => update("showVideoButton", event.currentTarget.checked)} />
         <SwitchSetting checked={draft().showChannelButton} label={t("rpc.channelButton")} onChange={(event) => update("showChannelButton", event.currentTarget.checked)} />
         <SwitchSetting checked={draft().idleWhenPaused} label={t("rpc.idle")} hint={t("rpc.idleHint")} onChange={(event) => update("idleWhenPaused", event.currentTarget.checked)} />
+        <div class="yt-setting">
+          <span class="yt-setting__text">
+            <span class="yt-setting__label">{t("rpc.tabMode")}</span>
+            <span class="yt-setting__hint">{t("rpc.tabModeHint")}</span>
+          </span>
+          <span class="yt-setting__control">
+            <Select
+              name="rpcTabMode"
+              label={() => t("rpc.tabMode")}
+              value={() => draft().tabMode ?? "smart"}
+              options={() => [
+                { value: "smart", label: t("rpc.tabModeSmart") },
+                { value: "activeTabOnly", label: t("rpc.tabModeActiveOnly") },
+                { value: "primaryPlaying", label: t("rpc.tabModePrimaryPlaying") },
+              ]}
+              onChange={(next) => update("tabMode", next as RpcTabMode)}
+            />
+          </span>
+        </div>
       </section>
 
       <p id="rpc-saved" class="rpc-saved" role="status" aria-live="polite" hidden={!message() && !error()}>{message() || error()}</p>

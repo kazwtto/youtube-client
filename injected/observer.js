@@ -8,7 +8,14 @@
 (function () {
   "use strict";
 
-  if (window !== window.top) return;
+  if (window !== window.top) {
+    document.addEventListener("contextmenu", (event) => {
+      const el = event.target instanceof Element ? event.target : event.target && event.target.parentElement;
+      if (el && el.closest("input, textarea, [contenteditable='true'], [contenteditable=''], [role='textbox']")) return;
+      event.preventDefault();
+    }, true);
+    return;
+  }
 
   const SELECTORS = {
     player: "#movie_player",
@@ -431,12 +438,33 @@
     const canGoForward = nav && typeof nav.canGoForward === "boolean"
       ? nav.canGoForward
       : false;
-    const signature = `${canGoBack}:${canGoForward}`;
+    const rawTitle = (document.title || "").trim();
+    const cleanedTitle = rawTitle.replace(/\s*-\s*YouTube(?:\s+Music)?$/i, "").trim();
+    const title = cleanedTitle || rawTitle || "YouTube";
+    const url = window.location.href;
+    const signature = `${canGoBack}:${canGoForward}:${title}:${url}`;
     if (!force && signature === lastNavSignature) return;
     lastNavSignature = signature;
-    window.__TAURI_INTERNALS__.invoke("youtube_nav_state", { canGoBack, canGoForward }).catch(() => {});
+    window.__TAURI_INTERNALS__.invoke("youtube_nav_state", { canGoBack, canGoForward, title, url }).catch(() => {});
   }
   window.__ytdesktopReportNavState = () => reportNavState(true);
+
+  let observedTitleEl = null;
+  const titleObserver = new MutationObserver(() => {
+    reportNavState();
+  });
+  function observePageTitle() {
+    const titleEl = document.querySelector("title");
+    if (!titleEl || titleEl === observedTitleEl) return;
+    titleObserver.disconnect();
+    observedTitleEl = titleEl;
+    titleObserver.observe(titleEl, { childList: true, characterData: true, subtree: true });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", observePageTitle, { once: true });
+  } else {
+    observePageTitle();
+  }
 
   function send(snapshot) {
     if (!canInvoke()) {
@@ -643,6 +671,7 @@
     lastSignature = "";
     lastAuthSignature = "";
     resumeLookupVideoId = null;
+    observePageTitle();
     report();
     reportAuth();
     lastTitlebarIconsSignature = "";
@@ -825,6 +854,191 @@
   } else {
     startVoiceObserver();
   }
+
+  function extractVideoIdFromUrl(rawUrl) {
+    if (!rawUrl) return null;
+    try {
+      const parsed = new URL(rawUrl, location.origin);
+      if (parsed.pathname === "/watch") {
+        const v = parsed.searchParams.get("v");
+        return v && /^[A-Za-z0-9_-]{6,}$/.test(v) ? v : null;
+      }
+      const shortsMatch = parsed.pathname.match(/^\/shorts\/([A-Za-z0-9_-]{6,})/);
+      if (shortsMatch) return shortsMatch[1];
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  function isPreservedNativeContextTarget(target) {
+    const el = target instanceof Element ? target : target && target.parentElement;
+    if (!el) return false;
+    if (el.closest("#movie_player, .html5-video-player, video.html5-main-video, .ytp-contextmenu, .ytp-popup")) {
+      return true;
+    }
+    if (el.closest("input, textarea, [contenteditable='true'], [contenteditable=''], [role='textbox']")) {
+      return true;
+    }
+    return false;
+  }
+
+  function extractContextMenuPayload(event) {
+    const target = event.target instanceof Element ? event.target : event.target && event.target.parentElement;
+    const nav = window.navigation;
+    const canGoBack = nav && typeof nav.canGoBack === "boolean" ? nav.canGoBack : window.history.length > 1;
+    const canGoForward = nav && typeof nav.canGoForward === "boolean" ? nav.canGoForward : false;
+    const selectionText = (window.getSelection()?.toString() || "").trim();
+    const activeVideo = document.querySelector("video");
+    const pageVideoId = extractVideoIdFromUrl(location.href);
+    const currentTimeSecs = pageVideoId && activeVideo && Number.isFinite(activeVideo.currentTime) && activeVideo.currentTime > 0
+      ? Math.floor(activeVideo.currentTime)
+      : null;
+
+    const anchor = target ? target.closest("a[href]") : null;
+    const card = target ? target.closest(
+      "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model, ytd-reel-item-renderer"
+    ) : null;
+
+    let linkUrl = anchor instanceof HTMLAnchorElement ? anchor.href : null;
+    let videoId = extractVideoIdFromUrl(linkUrl);
+    if (!videoId && card) {
+      const cardLink = card.querySelector("a#thumbnail[href], a#video-title-link[href], a#video-title[href], a[href*='/watch'], a[href*='/shorts/']");
+      if (cardLink instanceof HTMLAnchorElement) {
+        linkUrl = cardLink.href;
+        videoId = extractVideoIdFromUrl(linkUrl);
+      }
+    }
+
+    if (videoId) {
+      const titleEl = card
+        ? card.querySelector("#video-title, #video-title-link, h3 a, .yt-lockup-metadata-view-model-wiz__title, span.yt-core-attributed-string")
+        : anchor;
+      const channelEl = card
+        ? card.querySelector("ytd-channel-name a, ytd-channel-name #text, #channel-name a")
+        : null;
+      const videoTitle = (titleEl?.textContent || anchor?.getAttribute("title") || anchor?.getAttribute("aria-label") || "").trim() || null;
+      const channelName = (channelEl?.textContent || "").trim() || null;
+      return {
+        x: event.clientX,
+        y: event.clientY,
+        kind: "video",
+        pageUrl: location.href,
+        pageTitle: document.title,
+        canGoBack,
+        canGoForward,
+        videoId,
+        videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        videoTitle,
+        channelName,
+        linkUrl,
+        selectionText: selectionText || null,
+        currentTimeSecs,
+      };
+    }
+
+    if (linkUrl) {
+      try {
+        const parsed = new URL(linkUrl, location.origin);
+        if (/^\/(@|channel\/|c\/|user\/)/.test(parsed.pathname)) {
+          return {
+            x: event.clientX,
+            y: event.clientY,
+            kind: "channel",
+            pageUrl: location.href,
+            pageTitle: document.title,
+            canGoBack,
+            canGoForward,
+            videoId: null,
+            videoUrl: null,
+            videoTitle: null,
+            channelName: (anchor?.textContent || "").trim() || null,
+            linkUrl,
+            selectionText: selectionText || null,
+            currentTimeSecs,
+          };
+        }
+      } catch {
+        // Ignore malformed URLs and fall back to selection/page context.
+      }
+    }
+
+    return {
+      x: event.clientX,
+      y: event.clientY,
+      kind: selectionText ? "selection" : "page",
+      pageUrl: location.href,
+      pageTitle: document.title,
+      canGoBack,
+      canGoForward,
+      videoId: pageVideoId,
+      videoUrl: pageVideoId ? `https://www.youtube.com/watch?v=${pageVideoId}` : null,
+      videoTitle: null,
+      channelName: null,
+      linkUrl,
+      selectionText: selectionText || null,
+      currentTimeSecs,
+    };
+  }
+
+  document.addEventListener("contextmenu", (event) => {
+    if (window !== window.top || !canInvoke()) return;
+    if (isPreservedNativeContextTarget(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const payload = extractContextMenuPayload(event);
+    window.__TAURI_INTERNALS__.invoke("youtube_context_menu", { payload }).catch(() => {});
+  }, true);
+
+  let edgePeekActive = false;
+  let bottomPeekActive = false;
+  document.addEventListener("mousemove", (event) => {
+    const peekMode = window.__ytdesktopPeekMode;
+    if (peekMode !== "sidebarHover" && peekMode !== "floating") {
+      edgePeekActive = false;
+      bottomPeekActive = false;
+      return;
+    }
+    if (window !== window.top || !canInvoke()) return;
+
+    if (peekMode === "sidebarHover") {
+      const midY = window.innerHeight / 2;
+      const sideZoneHalf = Math.min(180, window.innerHeight * 0.28);
+      const inSideZone = event.clientX <= 20 && Math.abs(event.clientY - midY) <= sideZoneHalf;
+      if (inSideZone) {
+        if (!edgePeekActive) {
+          edgePeekActive = true;
+          window.__TAURI_INTERNALS__.invoke("tab_sidebar_peek", { peek: true }).catch(() => {});
+        }
+      } else if (edgePeekActive && event.clientX > 28) {
+        edgePeekActive = false;
+      }
+      return;
+    }
+
+    const midX = window.innerWidth / 2;
+    const bottomZoneHalf = Math.min(180, window.innerWidth * 0.24);
+    const fromBottom = window.innerHeight - event.clientY;
+    const inBottomZone = fromBottom <= 22 && Math.abs(event.clientX - midX) <= bottomZoneHalf;
+    if (inBottomZone) {
+      if (!bottomPeekActive) {
+        bottomPeekActive = true;
+        window.__TAURI_INTERNALS__.invoke("tab_dock_peek", { peek: true }).catch(() => {});
+      }
+    } else if (bottomPeekActive && fromBottom > 76) {
+      bottomPeekActive = false;
+      window.__TAURI_INTERNALS__.invoke("tab_dock_peek", { peek: false }).catch(() => {});
+    }
+  }, { passive: true });
+
+  document.addEventListener("keydown", (event) => {
+    if (window !== window.top || !canInvoke()) return;
+    if (event.ctrlKey && !event.altKey && (event.key === "Tab" || event.key.toLowerCase() === "k")) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.__TAURI_INTERNALS__.invoke("tab_open_action_menu").catch(() => {});
+    }
+  }, true);
 
   schedule();
 })();

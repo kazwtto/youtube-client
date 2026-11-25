@@ -17,6 +17,7 @@ pub const AUTH_MODAL_WINDOW_LABEL: &str = "auth_modal";
 pub const AUTH_UI_WEBVIEW_LABEL: &str = "auth_ui";
 pub const AUTH_WEB_WEBVIEW_LABEL: &str = "auth_web";
 pub const UI_WEBVIEW_LABEL: &str = "ui";
+pub const TAB_DOCK_WEBVIEW_LABEL: &str = "tab_dock";
 pub const YOUTUBE_WEBVIEW_LABEL: &str = "yt";
 
 /// Custom title bar height, in logical pixels. Must match `--titlebar-height`
@@ -66,14 +67,64 @@ pub fn setup(
     super::webview_popups::watch(&window, &ui);
 
     let theme = current_theme(&window);
-    add_youtube(&window, webview_data_dir, theme.as_ref())?;
+    if let Some(active_tab) = window
+        .app_handle()
+        .try_state::<AppState>()
+        .and_then(|state| state.tabs.lock().ok().and_then(|m| m.active_tab().cloned()))
+    {
+        create_tab_webview(&window, &active_tab, theme.as_ref())?;
+    } else {
+        add_youtube(&window, webview_data_dir, theme.as_ref())?;
+    }
 
+    let _ = sync_tab_dock_webview(&window, webview_data_dir);
     layout_webviews(&window)?;
     observe_window(&window);
     setup_auth_modal_window(app, webview_data_dir)?;
     crate::window::tray::setup(app)?;
 
     Ok(window)
+}
+
+pub fn build_auth_web_webview(modal: &Window, data_dir: &Path) -> AppResult<()> {
+    let _ = std::fs::create_dir_all(data_dir);
+    let url: tauri::Url = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com"
+        .parse()
+        .expect("invalid Google login URL");
+
+    let auth_web_builder = WebviewBuilder::new(AUTH_WEB_WEBVIEW_LABEL, WebviewUrl::External(url))
+        .data_directory(data_dir.to_path_buf())
+        .browser_extensions_enabled(true)
+        .background_color(Color(255, 255, 255, 255))
+        .on_page_load(move |webview, payload| {
+            if let tauri::webview::PageLoadEvent::Finished = payload.event() {
+                let url_str = payload.url().as_str();
+                if url_str.starts_with("https://www.youtube.com") && !url_str.contains("ServiceLogin") {
+                    let app = webview.app_handle().clone();
+                    if let Some(modal) = app.get_window(AUTH_MODAL_WINDOW_LABEL) {
+                        let _ = modal.hide();
+                    }
+                    if let Some(main) = app.get_window(MAIN_WINDOW_LABEL) {
+                        if let Some(yt) = active_youtube_webview(&main) {
+                            let _ = yt.reload();
+                        }
+                    }
+                }
+            }
+        });
+
+    let card_w = 640.0;
+    let card_h = 520.0;
+    let card_x = (INITIAL_WIDTH - card_w) / 2.0;
+    let card_y = (INITIAL_HEIGHT - card_h) / 2.0;
+    let header_h = 44.0;
+
+    modal.add_child(
+        auth_web_builder,
+        LogicalPosition::new(card_x, card_y + header_h),
+        LogicalSize::new(card_w, card_h - header_h),
+    )?;
+    Ok(())
 }
 
 fn setup_auth_modal_window(app: &mut App, webview_data_dir: &Path) -> AppResult<()> {
@@ -103,42 +154,8 @@ fn setup_auth_modal_window(app: &mut App, webview_data_dir: &Path) -> AppResult<
         LogicalSize::new(INITIAL_WIDTH, INITIAL_HEIGHT),
     )?;
 
-    let url: tauri::Url = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com"
-        .parse()
-        .expect("invalid Google login URL");
-
-    let auth_web_builder = WebviewBuilder::new(AUTH_WEB_WEBVIEW_LABEL, WebviewUrl::External(url))
-        .data_directory(webview_data_dir.join("yt"))
-        .browser_extensions_enabled(true)
-        .background_color(Color(255, 255, 255, 255))
-        .on_page_load(move |webview, payload| {
-            if let tauri::webview::PageLoadEvent::Finished = payload.event() {
-                let url_str = payload.url().as_str();
-                if url_str.starts_with("https://www.youtube.com") && !url_str.contains("ServiceLogin") {
-                    let app = webview.app_handle().clone();
-                    if let Some(modal) = app.get_window(AUTH_MODAL_WINDOW_LABEL) {
-                        let _ = modal.hide();
-                    }
-                    if let Some(main) = app.get_window(MAIN_WINDOW_LABEL) {
-                        if let Some(yt) = main.get_webview(YOUTUBE_WEBVIEW_LABEL) {
-                            let _ = yt.eval("fetch(location.href, { credentials: 'include', cache: 'no-store' });");
-                        }
-                    }
-                }
-            }
-        });
-
-    let card_w = 640.0;
-    let card_h = 520.0;
-    let card_x = (INITIAL_WIDTH - card_w) / 2.0;
-    let card_y = (INITIAL_HEIGHT - card_h) / 2.0;
-    let header_h = 44.0;
-
-    window.add_child(
-        auth_web_builder,
-        LogicalPosition::new(card_x, card_y + header_h),
-        LogicalSize::new(card_w, card_h - header_h),
-    )?;
+    let default_dir = webview_data_dir.join("profiles").join("default");
+    build_auth_web_webview(&window, &default_dir)?;
 
     #[cfg(target_os = "windows")]
     {
@@ -228,19 +245,190 @@ pub fn sync_auth_modal_position(main: &Window) {
     }
 }
 
-/// Rebuilds the YouTube webview.
-///
-/// WebView2 reads the browser extension list only when a webview is created, so
-/// enabling or disabling an extension requires recreating the webview. The
-/// WebView2 environment is cached per data directory, so the profile (cookies,
-/// login, extensions) is preserved. `visible` restores the current visibility,
-/// which the caller tracks, because a new webview starts visible.
+pub fn active_youtube_label(app: &tauri::AppHandle) -> String {
+    app.try_state::<AppState>()
+        .and_then(|state| {
+            state
+                .tabs
+                .lock()
+                .ok()
+                .and_then(|manager| manager.active_tab().map(|tab| tab.webview_label.clone()))
+        })
+        .unwrap_or_else(|| "yt-tab-1".to_string())
+}
+
+pub fn active_youtube_webview(window: &Window) -> Option<tauri::Webview> {
+    let label = active_youtube_label(window.app_handle());
+    window
+        .get_webview(&label)
+        .or_else(|| window.get_webview(YOUTUBE_WEBVIEW_LABEL))
+}
+
+pub fn chrome_insets(window: &Window) -> (f64, f64, f64) {
+    use crate::settings::model::TabLayout;
+
+    let Some(state) = window.app_handle().try_state::<AppState>() else {
+        return (0.0, TITLEBAR_HEIGHT, 0.0);
+    };
+    let Ok(settings) = state.settings.read() else {
+        return (0.0, TITLEBAR_HEIGHT, 0.0);
+    };
+    let tabs = settings.snapshot().tabs;
+    if !tabs.enabled {
+        return (0.0, TITLEBAR_HEIGHT, 0.0);
+    }
+    let narrow_window = window
+        .inner_size()
+        .ok()
+        .zip(window.scale_factor().ok())
+        .map(|(size, scale)| (size.width as f64 / scale.max(0.0001)) < 720.0)
+        .unwrap_or(false);
+    let left = match tabs.layout {
+        TabLayout::Sidebar => {
+            let expanded = state
+                .sidebar_expanded
+                .load(std::sync::atomic::Ordering::SeqCst);
+            if expanded && !narrow_window {
+                state
+                    .sidebar_width
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    .clamp(148, 220) as f64
+            } else {
+                56.0
+            }
+        }
+        TabLayout::Command | TabLayout::Bottom | TabLayout::Floating | TabLayout::SidebarHover => 0.0,
+    };
+    let bottom = match tabs.layout {
+        TabLayout::Bottom => 34.0,
+        TabLayout::Command | TabLayout::Floating | TabLayout::Sidebar | TabLayout::SidebarHover => 0.0,
+    };
+    (left, TITLEBAR_HEIGHT, bottom)
+}
+
+pub fn tab_dock_bounds(window: &Window) -> AppResult<(LogicalPosition<f64>, LogicalSize<f64>)> {
+    let scale = window.scale_factor()?.max(0.0001);
+    let size = window.inner_size()?;
+    let width = size.width as f64 / scale;
+    let height = size.height as f64 / scale;
+    let raw_w = window
+        .app_handle()
+        .try_state::<AppState>()
+        .map(|s| s.dock_width.load(std::sync::atomic::Ordering::SeqCst) as f64)
+        .unwrap_or(240.0);
+    let dock_w = raw_w.clamp(120.0, (width - 24.0).max(120.0));
+    let dock_h = 56.0;
+    let x = ((width - dock_w) / 2.0).max(12.0);
+    let y = (height - dock_h).max(TITLEBAR_HEIGHT + 8.0);
+    Ok((LogicalPosition::new(x, y), LogicalSize::new(dock_w, dock_h)))
+}
+
+pub fn sync_tab_dock_webview(window: &Window, webview_data_dir: &Path) -> AppResult<()> {
+    use crate::settings::model::TabLayout;
+
+    let (is_floating, dock_peek) = window
+        .app_handle()
+        .try_state::<AppState>()
+        .map(|s| {
+            let floating = s
+                .settings
+                .read()
+                .ok()
+                .map(|st| {
+                    let tabs = st.snapshot().tabs;
+                    tabs.enabled && tabs.layout == TabLayout::Floating
+                })
+                .unwrap_or(false);
+            let peek = s.dock_peek.load(std::sync::atomic::Ordering::SeqCst);
+            (floating, peek)
+        })
+        .unwrap_or((false, false));
+
+    if is_floating {
+        let (pos, size) = tab_dock_bounds(window)?;
+        if let Some(dock) = window.get_webview(TAB_DOCK_WEBVIEW_LABEL) {
+            let _ = dock.set_position(pos);
+            let _ = dock.set_size(size);
+            if dock_peek {
+                let _ = dock.show();
+            } else {
+                let _ = dock.hide();
+            }
+        } else {
+            let builder = WebviewBuilder::new(
+                TAB_DOCK_WEBVIEW_LABEL,
+                WebviewUrl::App("index.html?dock=1".into()),
+            )
+            .data_directory(webview_data_dir.join("ui"))
+            .background_color(Color(0, 0, 0, 0));
+            let dock = window.add_child(builder, pos, size)?;
+            if !dock_peek {
+                let _ = dock.hide();
+            }
+            #[cfg(windows)]
+            super::webview_popups::watch(window, &dock);
+        }
+    } else {
+        if let Some(state) = window.app_handle().try_state::<AppState>() {
+            state
+                .dock_peek
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        if let Some(dock) = window.get_webview(TAB_DOCK_WEBVIEW_LABEL) {
+            let _ = dock.hide();
+            #[cfg(windows)]
+            super::webview_popups::unwatch_webview(&dock);
+            let _ = dock.close();
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub fn set_webview_muted(window: &Window, label: &str, muted: bool) -> AppResult<()> {
+    if let Some(webview) = window.get_webview(label) {
+        let _ = webview.with_webview(move |platform| unsafe {
+            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
+            use windows_core::Interface;
+            if let Ok(core) = platform.controller().CoreWebView2() {
+                if let Ok(core8) = core.cast::<ICoreWebView2_8>() {
+                    let _ = core8.SetIsMuted(muted);
+                }
+            }
+        });
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_webview_muted(_window: &Window, _label: &str, _muted: bool) -> AppResult<()> {
+    Ok(())
+}
+
+/// Rebuilds the active YouTube tab webview and marks background tabs for lazy reload.
 pub async fn reload_youtube(
     window: &Window,
-    webview_data_dir: &Path,
+    _webview_data_dir: &Path,
     visible: bool,
 ) -> AppResult<()> {
-    if let Some(existing) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+    let active_tab = window
+        .app_handle()
+        .try_state::<AppState>()
+        .and_then(|state| {
+            state.tabs.lock().ok().and_then(|mut manager| {
+                manager.mark_inactive_needs_reload();
+                manager.active_tab().cloned()
+            })
+        })
+        .ok_or_else(|| AppError::State("active tab unavailable".into()))?;
+
+    if let Some(state) = window.app_handle().try_state::<AppState>() {
+        if let Ok(mut painted) = state.painted_webviews.lock() {
+            painted.clear();
+        }
+    }
+    if let Some(existing) = window.get_webview(&active_tab.webview_label) {
         let _ = existing.close();
     }
 
@@ -251,16 +439,13 @@ pub async fn reload_youtube(
             tokio::time::sleep(Duration::from_millis(300)).await;
         }
 
-        match add_youtube(window, webview_data_dir, theme.as_ref()) {
+        match create_tab_webview(window, &active_tab, theme.as_ref()) {
             Ok(()) => {
-                // A visible webview is shown by the page-load handler once the
-                // site begins rendering; hide it here only when the launcher is active.
                 if !visible {
-                    if let Some(webview) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+                    if let Some(webview) = window.get_webview(&active_tab.webview_label) {
                         let _ = webview.hide();
                     }
                 }
-
                 return Ok(());
             }
             Err(error) => last_error = Some(error),
@@ -334,19 +519,57 @@ fn startup_youtube_url(window: &Window) -> tauri::Url {
         .unwrap_or(default)
 }
 
+pub fn create_tab_webview(
+    window: &Window,
+    tab: &crate::tabs::TabState,
+    theme: Option<&ResolvedTheme>,
+) -> AppResult<()> {
+    let profile_dir = window
+        .app_handle()
+        .try_state::<AppState>()
+        .map(|state| state.paths.tab_webview_dir(&tab.id, tab.isolated))
+        .ok_or_else(|| AppError::State("app paths unavailable".into()))?;
+    let _ = std::fs::create_dir_all(&profile_dir);
+
+    let url = normalize_youtube_url(&tab.url)
+        .and_then(|value| tauri::Url::parse(&value).ok())
+        .unwrap_or_else(|| YOUTUBE_URL.parse().expect("invalid YouTube URL"));
+
+    create_youtube_webview_with_dir(
+        window,
+        &tab.webview_label,
+        &profile_dir,
+        url,
+        tab.muted,
+        theme,
+    )
+}
+
 fn add_youtube(
     window: &Window,
     webview_data_dir: &Path,
     theme: Option<&ResolvedTheme>,
 ) -> AppResult<()> {
-    if let Some(state) = window.app_handle().try_state::<AppState>() {
-        state
-            .youtube_ready
-            .store(false, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    let (position, size) = youtube_bounds(window)?;
     let url = startup_youtube_url(window);
+    create_youtube_webview_with_dir(
+        window,
+        YOUTUBE_WEBVIEW_LABEL,
+        &webview_data_dir.join("profiles").join("default"),
+        url,
+        false,
+        theme,
+    )
+}
+
+fn create_youtube_webview_with_dir(
+    window: &Window,
+    label: &str,
+    data_dir: &Path,
+    url: tauri::Url,
+    muted: bool,
+    theme: Option<&ResolvedTheme>,
+) -> AppResult<()> {
+    let (position, size) = youtube_bounds(window)?;
 
     // The resolved theme is embedded in the initialization script: the script
     // runs before the page is parsed, so the transparent/themed stylesheet is
@@ -374,16 +597,34 @@ fn add_youtube(
         .unwrap_or_default();
     let initial_masthead =
         format!("window.__ytdesktopInitialMastheadIntegrated = {masthead_integrated};\n");
+    let peek_mode = window
+        .app_handle()
+        .try_state::<AppState>()
+        .and_then(|s| s.settings.read().ok().map(|st| st.snapshot().tabs))
+        .map(|tabs| {
+            if !tabs.enabled {
+                "none"
+            } else {
+                match tabs.layout {
+                    crate::settings::model::TabLayout::SidebarHover => "sidebarHover",
+                    crate::settings::model::TabLayout::Floating => "floating",
+                    _ => "none",
+                }
+            }
+        })
+        .unwrap_or("none");
+    let initial_peek_mode = format!("window.__ytdesktopPeekMode = \"{peek_mode}\";\n");
     let script = format!(
-        "window.__ytdesktopConfigEpoch = \"{config_epoch}\";\n{initial}{initial_masthead}{}",
+        "window.__ytdesktopConfigEpoch = \"{config_epoch}\";\n{initial}{initial_masthead}{initial_peek_mode}{}",
         include_str!("../../../injected/theme.js")
     );
     let app_handle = window.app_handle().clone();
+    let webview_label = label.to_string();
 
     let make = |with_extensions: bool| {
         let mut builder =
-            WebviewBuilder::new(YOUTUBE_WEBVIEW_LABEL, WebviewUrl::External(url.clone()))
-                .data_directory(webview_data_dir.join("yt"))
+            WebviewBuilder::new(&webview_label, WebviewUrl::External(url.clone()))
+                .data_directory(data_dir.to_path_buf())
                 // Transparent so the native Mica/Acrylic backdrop of the window
                 // shows through the site. `theme.js` keeps the page opaque when
                 // the selected backdrop is Solid. The transparent background is
@@ -427,31 +668,32 @@ fn add_youtube(
 
                     match payload.event() {
                         tauri::webview::PageLoadEvent::Started => {
-                            if payload.url().as_str().contains("accounts.google.com") {
+                            let top_url = webview
+                                .url()
+                                .ok()
+                                .map(|u| u.to_string())
+                                .unwrap_or_default();
+                            let is_top_login = (top_url.contains("accounts.google.com/ServiceLogin")
+                                || top_url.contains("accounts.google.com/v3/signin")
+                                || top_url.contains("accounts.google.com/InteractiveLogin"))
+                                && payload.url().as_str() == top_url;
+                            if is_top_login {
                                 let _ = webview.eval("location.href = 'https://www.youtube.com';");
                                 return;
                             }
-                            let startup_loading = app
-                                .try_state::<AppState>()
-                                .map(|state| state.youtube_loading.load(Ordering::SeqCst))
-                                .unwrap_or_default();
-                            if startup_loading {
-                                set_loading(&app, true);
-                                let _ = app.emit(crate::core::events::YOUTUBE_LOADING, true);
-                            }
-                            let visible = app
-                                .try_state::<AppState>()
-                                .map(|state| state.youtube_visible.load(Ordering::SeqCst))
-                                .unwrap_or(true);
-                            if visible { let _ = webview.show(); } else { let _ = webview.hide(); }
                         }
                         tauri::webview::PageLoadEvent::Finished => {
-                            let is_youtube_page = payload
-                                .url()
+                            let Some(top_url) = webview.url().ok() else {
+                                return;
+                            };
+                            let is_youtube_page = top_url
                                 .host_str()
                                 .map(|host| host == "youtube.com" || host.ends_with(".youtube.com"))
                                 .unwrap_or(false);
                             if !is_youtube_page {
+                                return;
+                            }
+                            if payload.url().as_str() != top_url.as_str() {
                                 return;
                             }
 
@@ -459,29 +701,44 @@ fn add_youtube(
                                 "if (window.__ytdesktopReportTitlebarIcons) window.__ytdesktopReportTitlebarIcons(); if (window.__ytdesktopRequestAuthSnapshot) window.__ytdesktopRequestAuthSnapshot(); if (window.__ytdesktopReportNavState) window.__ytdesktopReportNavState();",
                             );
 
-                            let (visible, initial_load) = app
+                            let is_active = webview.label() == active_youtube_label(&app);
+                            if let Some(state) = app.try_state::<AppState>() {
+                                if let Ok(mut manager) = state.tabs.lock() {
+                                    if let Some(tab) = manager.tab_by_label_mut(webview.label()) {
+                                        let next_url = top_url.to_string();
+                                        if tab.url != next_url {
+                                            tab.url = next_url;
+                                            let _ = manager.save();
+                                        }
+                                    }
+                                }
+                            }
+                            let needs_paint_report = app
                                 .try_state::<AppState>()
                                 .map(|state| {
-                                    (
-                                        state.youtube_visible.load(Ordering::SeqCst),
-                                        state.youtube_loading.load(Ordering::SeqCst)
-                                            && !state.youtube_ready.load(Ordering::SeqCst),
-                                    )
+                                    is_active
+                                        && !state
+                                            .painted_webviews
+                                            .lock()
+                                            .map(|set| set.contains(webview.label()))
+                                            .unwrap_or(true)
                                 })
-                                .unwrap_or((true, false));
+                                .unwrap_or(false);
+                            let visible = is_active
+                                && app
+                                    .try_state::<AppState>()
+                                    .map(|state| state.youtube_visible.load(Ordering::SeqCst))
+                                    .unwrap_or(true);
                             if visible {
                                 let _ = webview.show();
+                            } else {
+                                let _ = webview.hide();
                             }
-                            if initial_load {
+                            if needs_paint_report {
                                 let _ = webview.eval(
                                     "window.__ytdesktopReportSurfacePainted && window.__ytdesktopReportSurfacePainted();",
                                 );
                             }
-
-                            if let Some(w) = app.get_window(MAIN_WINDOW_LABEL) {
-                                let _ = layout_webviews(&w);
-                            }
-
                         }
                     }
                 });
@@ -504,10 +761,9 @@ fn add_youtube(
     };
     #[cfg(windows)]
     super::webview_popups::watch(window, &webview);
-
-    // Keep this webview rendering below the opaque launcher surface. Hiding it
-    // pauses animation frames on WebView2 and prevents a reliable first-paint
-    // handoff.
+    if muted {
+        let _ = set_webview_muted(window, &webview_label, true);
+    }
 
     Ok(())
 }
@@ -527,11 +783,20 @@ fn youtube_bounds(window: &Window) -> AppResult<(LogicalPosition<f64>, LogicalSi
     let scale = window.scale_factor()?.max(0.0001);
     let width = size.width as f64 / scale;
     let height = size.height as f64 / scale;
+    let (left, top, bottom) = chrome_insets(window);
 
     Ok((
-        LogicalPosition::new(0.0, TITLEBAR_HEIGHT),
-        LogicalSize::new(width.max(0.0), (height - TITLEBAR_HEIGHT).max(0.0)),
+        LogicalPosition::new(left, top),
+        LogicalSize::new((width - left).max(0.0), (height - top - bottom).max(0.0)),
     ))
+}
+
+/// Aligns a single YouTube tab webview to the current content bounds.
+pub fn sync_youtube_webview_bounds(window: &Window, webview: &tauri::Webview) -> AppResult<()> {
+    let (yt_pos, yt_size) = youtube_bounds(window)?;
+    webview.set_position(yt_pos)?;
+    webview.set_size(yt_size)?;
+    Ok(())
 }
 
 /// Repositions the webviews according to the current window size and elevation state.
@@ -540,33 +805,127 @@ pub fn layout_webviews(window: &Window) -> AppResult<()> {
     let size = window.inner_size()?;
     let width = size.width as f64 / scale;
     let height = size.height as f64 / scale;
+    let (left, top, bottom) = chrome_insets(window);
+    let yt_pos = LogicalPosition::new(left, top);
+    let yt_size = LogicalSize::new((width - left).max(0.0), (height - top - bottom).max(0.0));
 
     if let Some(ui) = window.get_webview(UI_WEBVIEW_LABEL) {
         ui.set_position(LogicalPosition::new(0.0, 0.0))?;
         ui.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)))?;
     }
 
-    if let Some(youtube) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
-        youtube.set_position(LogicalPosition::new(0.0, TITLEBAR_HEIGHT))?;
-        youtube.set_size(LogicalSize::new(
-            width.max(0.0),
-            (height - TITLEBAR_HEIGHT).max(0.0),
-        ))?;
+    let active_label = active_youtube_label(window.app_handle());
+    if let Some(youtube) = window.get_webview(&active_label) {
+        youtube.set_position(yt_pos)?;
+        youtube.set_size(yt_size)?;
+    }
+
+    let (is_floating, dock_peek) = window
+        .app_handle()
+        .try_state::<AppState>()
+        .map(|s| {
+            let floating = s
+                .settings
+                .read()
+                .ok()
+                .map(|st| {
+                    let tabs = st.snapshot().tabs;
+                    tabs.enabled && tabs.layout == crate::settings::model::TabLayout::Floating
+                })
+                .unwrap_or(false);
+            let peek = s.dock_peek.load(std::sync::atomic::Ordering::SeqCst);
+            (floating, peek)
+        })
+        .unwrap_or((false, false));
+
+    if let Some(dock) = window.get_webview(TAB_DOCK_WEBVIEW_LABEL) {
+        if is_floating && dock_peek {
+            if let Ok((dock_pos, dock_size)) = tab_dock_bounds(window) {
+                let _ = dock.set_position(dock_pos);
+                let _ = dock.set_size(dock_size);
+            }
+            let _ = dock.show();
+        } else {
+            let _ = dock.hide();
+        }
     }
 
     #[cfg(target_os = "windows")]
     {
-        let elevated = window
+        let (elevated, ui_elevated, youtube_loading) = window
             .app_handle()
             .try_state::<AppState>()
             .map(|state| {
                 let ordering = std::sync::atomic::Ordering::SeqCst;
-                state.ui_elevated.load(ordering) || state.launcher_route_active.load(ordering)
+                let ui_el = state.ui_elevated.load(ordering);
+                let yt_load = state.youtube_loading.load(ordering);
+                let elev = ui_el
+                    || state.launcher_route_active.load(ordering)
+                    || state.sidebar_peek.load(ordering)
+                    || yt_load;
+                (elev, ui_el, yt_load)
             })
-            .unwrap_or(false);
+            .unwrap_or((false, false, false));
+        let active_label = active_youtube_label(window.app_handle());
+        if !elevated {
+            let _ = bring_webview_to_front(window, &active_label);
+        }
         set_ui_webview_z_order(window, elevated)?;
+        if is_floating && dock_peek && !ui_elevated && !youtube_loading {
+            let _ = bring_webview_to_front(window, TAB_DOCK_WEBVIEW_LABEL);
+        }
     }
 
+    Ok(())
+}
+
+pub fn layout_active_youtube_only(window: &Window) -> AppResult<()> {
+    let scale = window.scale_factor()?.max(0.0001);
+    let size = window.inner_size()?;
+    let width = size.width as f64 / scale;
+    let height = size.height as f64 / scale;
+    let (left, top, bottom) = chrome_insets(window);
+    let yt_pos = LogicalPosition::new(left, top);
+    let yt_size = LogicalSize::new((width - left).max(0.0), (height - top - bottom).max(0.0));
+    if let Some(youtube) = active_youtube_webview(window) {
+        youtube.set_position(yt_pos)?;
+        youtube.set_size(yt_size)?;
+    }
+    Ok(())
+}
+
+/// Raises a specific child webview HWND to the top of sibling webviews.
+#[cfg(target_os = "windows")]
+pub fn bring_webview_to_front(window: &Window, label: &str) -> AppResult<()> {
+    use std::ffi::c_void;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn SetWindowPos(
+            hwnd: *mut c_void,
+            insert_after: *mut c_void,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    if let Some(webview) = window.get_webview(label) {
+        let _ = webview.with_webview(|platform| unsafe {
+            let mut hwnd = Default::default();
+            if platform.controller().ParentWindow(&mut hwnd).is_ok() {
+                const KEEP_BOUNDS_AND_FOCUS: u32 = 0x0001 | 0x0002 | 0x0010 | 0x0200;
+                SetWindowPos(hwnd.0, std::ptr::null_mut(), 0, 0, 0, 0, KEEP_BOUNDS_AND_FOCUS);
+            }
+        });
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn bring_webview_to_front(_window: &Window, _label: &str) -> AppResult<()> {
     Ok(())
 }
 
@@ -627,7 +986,7 @@ fn observe_window(window: &Window) {
                 state.native_pip_active.store(false, std::sync::atomic::Ordering::SeqCst);
             }
             set_native_pip_taskbar(&handle.app_handle(), false);
-            if let Some(youtube) = handle.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+            if let Some(youtube) = active_youtube_webview(&handle) {
                 let _ = youtube.eval("if (document.pictureInPictureElement) document.exitPictureInPicture().catch(()=>{});");
             }
             // The mini player is part of this window: closing the app closes it
@@ -735,7 +1094,7 @@ pub fn close_pip(app: &tauri::AppHandle) {
     }
     set_native_pip_taskbar(app, false);
     if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
-        if let Some(youtube) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+        if let Some(youtube) = active_youtube_webview(&window) {
             let _ = youtube.eval("if (document.pictureInPictureElement) document.exitPictureInPicture().catch(()=>{});");
         }
     }
@@ -745,7 +1104,7 @@ pub fn close_pip(app: &tauri::AppHandle) {
     }
 
     if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
-        if let Some(youtube) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+        if let Some(youtube) = active_youtube_webview(&window) {
             let _ = youtube.eval(
                 "(function(){const v=document.querySelector('video');if(v&&v.paused){v.play().catch(()=>{});}return true;})()",
             );
@@ -945,7 +1304,7 @@ pub fn open_pip(app: &tauri::AppHandle) -> AppResult<()> {
 
     if settings.pip.mode == crate::settings::model::PipMode::Native {
         if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
-            if let Some(youtube) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+            if let Some(youtube) = active_youtube_webview(&window) {
                 let _ = youtube.eval(
                     r#"(async function() {
                         const v = document.querySelector('video');
@@ -974,14 +1333,21 @@ pub fn open_pip(app: &tauri::AppHandle) -> AppResult<()> {
         let state = app
             .try_state::<AppState>()
             .ok_or_else(|| AppError::State("app not ready".into()))?;
+        let active_id = state
+            .tabs
+            .lock()
+            .map_err(|_| AppError::State("tabs unavailable".into()))?
+            .active_tab_id()
+            .to_string();
 
-        let snapshot = state
-            .last_player
+        let media = state
+            .media_by_tab
             .lock()
             .map_err(|_| AppError::State("player unavailable".into()))?;
 
-        let current = snapshot
-            .as_ref()
+        let current = media
+            .get(&active_id)
+            .and_then(|entry| entry.last_player.as_ref())
             .ok_or_else(|| AppError::Validation("no video is playing".into()))?;
 
         // A paused video is not playing anywhere: the mini player is for what
@@ -1066,7 +1432,7 @@ pub fn open_pip(app: &tauri::AppHandle) -> AppResult<()> {
 
     // The mini player takes over playback so the same audio never plays twice.
     if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
-        if let Some(youtube) = window.get_webview(YOUTUBE_WEBVIEW_LABEL) {
+        if let Some(youtube) = active_youtube_webview(&window) {
             let _ = youtube.eval(
                 "(function(){const v=document.querySelector('video');if(v&&!v.paused){v.pause();}return true;})()",
             );

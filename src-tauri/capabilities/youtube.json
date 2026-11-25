@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "youtube",
   "description": "Allows the injected YouTube scripts to read the theme, report playback and account state, resume history progress, and remember the last page.",
-  "webviews": ["yt"],
+  "webviews": ["yt*"],
   "local": false,
   "remote": {
     "urls": [
@@ -20,6 +20,10 @@
     "allow-youtube-titlebar-icons-snapshot",
     "allow-youtube-nav-state",
     "allow-youtube-voice-state",
+    "allow-youtube-context-menu",
+    "allow-tab-sidebar-peek",
+    "allow-tab-dock-peek",
+    "allow-tab-open-action-menu",
     "allow-set-native-pip-active",
     "allow-native-pip-return",
     "allow-youtube-surface-painted"

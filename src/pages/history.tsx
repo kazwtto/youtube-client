@@ -4,8 +4,9 @@ import { render } from "solid-js/web";
 import { createStore, reconcile } from "solid-js/store";
 
 import { Icon } from "../components/icons";
+import { Select } from "../components/select";
 import { getLocale, t, type TranslationKey } from "../i18n";
-import { api, type HistoryEntry } from "../lib/api";
+import { api, type HistoryEntry, type TabState } from "../lib/api";
 
 type DateFilter = "all" | "today" | "yesterday" | "week";
 type ViewMode = "list" | "grid" | "columns";
@@ -206,7 +207,16 @@ function HistoryPage(props: { host: HTMLElement }) {
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [toast, setToast] = createSignal("");
   const [openMenu, setOpenMenu] = createSignal<string | null>(null);
+  const [isolatedTabs, setIsolatedTabs] = createSignal<TabState[]>([]);
+  const [profileId, setProfileId] = createSignal<string>("default");
   const [newlyVisible, setNewlyVisible] = createSignal(new Set<string>());
+  const [pendingConfirm, setPendingConfirm] = createSignal<{
+    message: string;
+    confirmLabel: string;
+    onConfirm: () => Promise<void>;
+  } | null>(null);
+  let confirmDialog!: HTMLDialogElement;
+  let confirmOpener: HTMLElement | null = null;
   const filtered = createMemo(() => filteredEntries(entries, filter()));
   const groups = createMemo(() => {
     const grouped = new Map<number, HistoryEntry[]>();
@@ -264,7 +274,7 @@ function HistoryPage(props: { host: HTMLElement }) {
     const previousIds = new Set(filtered().map((entry) => entry.id));
     const search = query().trim();
     try {
-      const next = await api.historyList({ search, limit: HISTORY_PAGE_SIZE, offset: 0 });
+      const next = await api.historyList({ search, limit: HISTORY_PAGE_SIZE, offset: 0, profileId: profileId() });
       if (currentRequest !== request) return;
       setEntries(reconcile(next, { key: "id" }));
       loadedCount = next.length;
@@ -283,7 +293,7 @@ function HistoryPage(props: { host: HTMLElement }) {
     setLoadingMore(true);
     setStatus("");
     try {
-      const next = await api.historyList({ search, limit: HISTORY_PAGE_SIZE, offset: loadedCount });
+      const next = await api.historyList({ search, limit: HISTORY_PAGE_SIZE, offset: loadedCount, profileId: profileId() });
       if (currentRequest !== request || search !== query().trim()) return;
       const previousIds = new Set(entries.map((entry) => entry.id));
       setEntries(reconcile([...entries, ...next], { key: "id" }));
@@ -306,29 +316,57 @@ function HistoryPage(props: { host: HTMLElement }) {
     markNewEntries(new Set(nextItems.filter((entry) => !previousIds.has(entry.id)).map((entry) => entry.id)));
   };
 
-  const remove = async (id: string): Promise<void> => {
-    setOpenMenu(null);
-    const entry = entries.find((item) => item.id === id);
-    if (!window.confirm(t("history.confirmRemove", { title: entry?.title ?? id }))) return;
-    try {
-      await api.historyDelete(id);
-      setStatus(t("history.removed"));
-      await load();
-    } catch (error) {
-      setStatus(t("common.error", { error: String(error) }));
-    }
+  const openConfirm = (message: string, confirmLabel: string, onConfirm: () => Promise<void>): void => {
+    confirmOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setPendingConfirm({ message, confirmLabel, onConfirm });
+    window.requestAnimationFrame(() => {
+      if (confirmDialog && !confirmDialog.open) {
+        confirmDialog.showModal();
+        confirmDialog.querySelector<HTMLButtonElement>(".yt-confirm-dialog__cancel")?.focus();
+      }
+    });
   };
 
-  const clear = async (): Promise<void> => {
+  const closeConfirm = (): void => {
+    if (confirmDialog?.open) confirmDialog.close();
+    setPendingConfirm(null);
+    confirmOpener?.focus();
+    confirmOpener = null;
+  };
+
+  const remove = (id: string): void => {
     setOpenMenu(null);
-    if (!window.confirm(t("history.confirmClear"))) return;
-    try {
-      await api.historyClear();
-      setStatus(t("history.cleared"));
-      await load();
-    } catch (error) {
-      setStatus(t("common.error", { error: String(error) }));
-    }
+    const entry = entries.find((item) => item.id === id);
+    openConfirm(
+      t("history.confirmRemove", { title: entry?.title ?? id }),
+      t("history.removeFromHistory"),
+      async () => {
+        try {
+          await api.historyDelete(id, profileId());
+          setStatus(t("history.removed"));
+          await load();
+        } catch (error) {
+          setStatus(t("common.error", { error: String(error) }));
+        }
+      },
+    );
+  };
+
+  const clear = (): void => {
+    setOpenMenu(null);
+    openConfirm(
+      t("history.confirmClear"),
+      t("history.clear"),
+      async () => {
+        try {
+          await api.historyClear(profileId());
+          setStatus(t("history.cleared"));
+          await load();
+        } catch (error) {
+          setStatus(t("common.error", { error: String(error) }));
+        }
+      },
+    );
   };
 
   onMount(() => {
@@ -342,16 +380,25 @@ function HistoryPage(props: { host: HTMLElement }) {
       setOpenMenu(null);
       trigger?.focus();
     };
-    const activate = (): void => void load();
+    const syncSessionAndLoad = async (): Promise<void> => {
+      try {
+        const snap = await api.tabsSnapshot();
+        setIsolatedTabs(snap.tabs.filter((item) => item.isolated));
+        const activeTab = snap.tabs.find((item) => item.id === snap.activeTabId);
+        setProfileId(activeTab?.isolated ? activeTab.id : "default");
+      } catch {
+        setProfileId("default");
+      }
+      await load();
+    };
+    activeHistoryRefresh = syncSessionAndLoad;
     document.addEventListener("click", closeMenus);
     document.addEventListener("keydown", onKeyDown);
-    props.host.addEventListener("page:activated", activate);
-    void load();
     onCleanup(() => {
+      if (activeHistoryRefresh === syncSessionAndLoad) activeHistoryRefresh = null;
       request += 1;
       document.removeEventListener("click", closeMenus);
       document.removeEventListener("keydown", onKeyDown);
-      props.host.removeEventListener("page:activated", activate);
       if (searchTimer !== undefined) window.clearTimeout(searchTimer);
       if (toastTimer !== undefined) window.clearTimeout(toastTimer);
       if (entryAnimationTimer !== undefined) window.clearTimeout(entryAnimationTimer);
@@ -399,6 +446,30 @@ function HistoryPage(props: { host: HTMLElement }) {
             )}
           </For>
         </div>
+
+        <Show when={isolatedTabs().length > 0 || profileId() !== "default"}>
+          <div class="history-profile-select">
+            <Select
+              name="historyProfile"
+              label={() => t("history.profileFilter")}
+              value={profileId}
+              options={() => [
+                { value: "default", label: t("history.mainSession") },
+                ...isolatedTabs().map((tab) => ({
+                  value: tab.id,
+                  label: tab.accountName
+                    ? `${tab.title} (${tab.accountName})`
+                    : t("history.isolatedTab", { title: tab.title }),
+                })),
+                { value: "all", label: t("history.allProfiles") },
+              ]}
+              onChange={(next) => {
+                setProfileId(next);
+                void load();
+              }}
+            />
+          </div>
+        </Show>
 
         <span class="history-count">{filtered().length ? t("history.count", { count: filtered().length }) : ""}</span>
         <div class="history-view-toggle" role="group" aria-label={t("history.viewMode")}>
@@ -449,10 +520,55 @@ function HistoryPage(props: { host: HTMLElement }) {
 
       <p class="status" role="status" aria-live="polite">{status()}</p>
       <div class="history-toast" classList={{ "is-visible": toast() !== "" }} aria-live="polite">{toast()}</div>
+
+      <dialog
+        class="yt-confirm-dialog"
+        ref={confirmDialog}
+        onCancel={(event) => {
+          event.preventDefault();
+          closeConfirm();
+        }}
+        onClick={(event) => {
+          if (event.target === confirmDialog) closeConfirm();
+        }}
+      >
+        <Show when={pendingConfirm()}>
+          {(dialogState) => (
+            <div class="yt-confirm-dialog__body">
+              <p class="yt-confirm-dialog__message">{dialogState().message}</p>
+              <div class="yt-confirm-dialog__actions">
+                <button type="button" class="yt-button yt-button--text yt-confirm-dialog__cancel" onClick={closeConfirm}>
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="button"
+                  class="yt-button yt-button--danger"
+                  onClick={() => {
+                    const action = dialogState().onConfirm;
+                    closeConfirm();
+                    void action();
+                  }}
+                >
+                  {dialogState().confirmLabel}
+                </button>
+              </div>
+            </div>
+          )}
+        </Show>
+      </dialog>
     </section>
   );
 }
 
-export function renderHistory(host: HTMLElement): void {
+let activeHistoryRefresh: (() => Promise<void>) | null = null;
+
+export async function refreshHistoryBeforeOpen(): Promise<void> {
+  if (activeHistoryRefresh) {
+    await activeHistoryRefresh();
+  }
+}
+
+export async function renderHistory(host: HTMLElement): Promise<void> {
   render(() => <HistoryPage host={host} />, host);
+  await refreshHistoryBeforeOpen();
 }

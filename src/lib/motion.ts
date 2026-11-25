@@ -16,14 +16,25 @@ export function animateMotion(
   keyframes: DOMKeyframesDefinition,
   options: AnimationOptions = {},
 ): AnimationPlaybackControlsWithThen | null {
-  if (!isMotionEnabled()) {
-    return animate(element, keyframes, { ...options, duration: 0 });
-  }
-  return animate(element, keyframes, {
-    duration: 0.18,
-    ease: MOTION_EASE_OUT,
-    ...options,
-  });
+  stopElementMotion(element, false);
+  const token = nextAnimationToken++;
+  const control = !isMotionEnabled()
+    ? animate(element, keyframes, { ...options, duration: 0 })
+    : animate(element, keyframes, {
+        duration: 0.18,
+        ease: MOTION_EASE_OUT,
+        ...options,
+      });
+  activeAnimations.set(element, { token, control });
+  void control.finished
+    .then(() => {
+      const entry = activeAnimations.get(element);
+      if (entry?.token === token) {
+        activeAnimations.delete(element);
+      }
+    })
+    .catch(() => undefined);
+  return control;
 }
 
 const activeAnimations = new WeakMap<Element, { token: number; control: AnimationPlaybackControlsWithThen }>();

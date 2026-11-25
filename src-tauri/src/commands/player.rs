@@ -12,6 +12,7 @@ use crate::settings::AppSettings;
 /// the UI, records watch history, and updates the Discord presence.
 #[tauri::command]
 pub fn player_snapshot(
+    webview: tauri::Webview,
     window: tauri::Window,
     state: State<'_, AppState>,
     snapshot: PlayerSnapshot,
@@ -21,19 +22,57 @@ pub fn player_snapshot(
         crate::window::audio::refresh_session_icon();
     }
 
-    let _ = window.app_handle().emit(events::PLAYER_UPDATE, &snapshot);
+    let (tab_id, profile_id, is_active_tab) = if let Ok(mut manager) = state.tabs.lock() {
+        let active_id = manager.active_tab_id().to_string();
+        if let Some(tab) = manager.tab_by_label_mut(webview.label()) {
+            let tid = tab.id.clone();
+            let pid = tab.history_scope().to_string();
+            let state_changed = tab.is_playing != snapshot.is_playing
+                || snapshot.title.as_deref().is_some_and(|t| !t.is_empty() && t != tab.title);
+            tab.is_playing = snapshot.is_playing;
+            if let Some(title) = snapshot.title.as_deref().filter(|t| !t.trim().is_empty()) {
+                tab.title = title.to_string();
+            }
+            if let Some(thumb) = snapshot.artwork_url.clone() {
+                tab.thumbnail_url = Some(thumb);
+            }
+            let active = tid == active_id;
+            if state_changed {
+                let _ = window.app_handle().emit("tabs://updated", manager.snapshot());
+            }
+            (tid, pid, active)
+        } else {
+            (
+                active_id.clone(),
+                manager.active_history_scope().to_string(),
+                true,
+            )
+        }
+    } else {
+        (
+            "tab-1".to_string(),
+            crate::tabs::DEFAULT_HISTORY_SCOPE.to_string(),
+            true,
+        )
+    };
 
-    let track_changed = if let Ok(mut last) = state.last_player.lock() {
-        let changed = last.as_ref().and_then(|value| value.video_id.clone()) != snapshot.video_id
-            || last.as_ref().and_then(|value| value.title.clone()) != snapshot.title;
-        *last = Some(snapshot.clone());
+    if is_active_tab {
+        let _ = window.app_handle().emit(events::PLAYER_UPDATE, &snapshot);
+    }
+
+    let track_changed = if let Ok(mut media) = state.media_by_tab.lock() {
+        let entry = media.entry(tab_id.clone()).or_default();
+        let changed = entry.last_player.as_ref().and_then(|value| value.video_id.clone())
+            != snapshot.video_id
+            || entry.last_player.as_ref().and_then(|value| value.title.clone()) != snapshot.title;
+        entry.last_player = Some(snapshot.clone());
+        entry.last_updated_ms = crate::rpc::model::now_millis();
         changed
     } else {
         false
     };
 
-    // Keeps an open mini player on the video the main window is on.
-    if track_changed {
+    if is_active_tab && track_changed {
         if let Some(pip) = window.app_handle().get_webview_window("pip") {
             let _ = pip.emit("pip://player", snapshot.clone());
         }
@@ -45,28 +84,92 @@ pub fn player_snapshot(
         .map_err(|_| AppError::State("settings unavailable".into()))?
         .snapshot();
 
-    record_history(&state, &settings, &snapshot)?;
+    record_history(&state, &settings, &tab_id, &profile_id, &snapshot)?;
+
+    reconcile_rpc(window.app_handle(), &state)
+}
+
+pub fn reconcile_rpc(app: &tauri::AppHandle, state: &AppState) -> AppResult<RpcStatus> {
+    let settings = state
+        .settings
+        .read()
+        .map_err(|_| AppError::State("settings unavailable".into()))?
+        .snapshot();
 
     let mut rpc = state
         .rpc
         .lock()
         .map_err(|_| AppError::State("RPC service unavailable".into()))?;
 
-    let status = if !settings.rpc.enabled {
-        if rpc.status().state != "disabled" {
+    if !settings.rpc.enabled {
+        if let Ok(mut active_rpc) = state.active_rpc_tab_id.lock() {
+            *active_rpc = None;
+        }
+        let status = if rpc.status().state != "disabled" {
             rpc.clear(&settings.rpc)?
         } else {
             RpcStatus::disabled()
+        };
+        let _ = app.emit(events::RPC_STATUS, &status);
+        return Ok(status);
+    }
+
+    let session = state
+        .tabs
+        .lock()
+        .map_err(|_| AppError::State("tabs unavailable".into()))?
+        .snapshot();
+    let media = state
+        .media_by_tab
+        .lock()
+        .map_err(|_| AppError::State("media state unavailable".into()))?;
+    let current_primary = state
+        .active_rpc_tab_id
+        .lock()
+        .ok()
+        .and_then(|g| g.clone());
+
+    let candidates: Vec<crate::rpc::model::RpcTabCandidate<'_>> = session
+        .tabs
+        .iter()
+        .filter_map(|tab| {
+            let m = media.get(&tab.id)?;
+            let snapshot = m.last_player.as_ref()?;
+            Some(crate::rpc::model::RpcTabCandidate {
+                tab_id: &tab.id,
+                is_active: tab.id == session.active_tab_id,
+                eligible: !tab.sleeping,
+                last_updated_ms: m.last_updated_ms,
+                snapshot,
+            })
+        })
+        .collect();
+
+    let selected = crate::rpc::model::select_rpc_candidate(
+        &candidates,
+        settings.rpc.tab_mode,
+        current_primary.as_deref(),
+    );
+
+    let (status, chosen_id) = match selected {
+        Some(candidate) => {
+            let app_id = app_id_for(&settings.rpc, candidate.snapshot.is_music());
+            match build_activity(candidate.snapshot, &settings.rpc, &settings.general.language) {
+                Some(activity) => (
+                    rpc.update(&activity, &settings.rpc, app_id)?,
+                    Some(candidate.tab_id.to_string()),
+                ),
+                None => (rpc.clear(&settings.rpc)?, None),
+            }
         }
-    } else {
-        let app_id = app_id_for(&settings.rpc, snapshot.is_music());
-        match build_activity(&snapshot, &settings.rpc, &settings.general.language) {
-            Some(activity) => rpc.update(&activity, &settings.rpc, app_id)?,
-            None => rpc.clear(&settings.rpc)?,
-        }
+        None => (rpc.clear(&settings.rpc)?, None),
     };
 
-    let _ = window.app_handle().emit(events::RPC_STATUS, &status);
+    if let Ok(mut active_rpc) = state.active_rpc_tab_id.lock() {
+        *active_rpc = chosen_id.clone();
+    }
+    let _ = app.emit("rpc://active-tab", chosen_id);
+    let _ = app.emit(events::RPC_STATUS, &status);
     Ok(status)
 }
 
@@ -75,12 +178,15 @@ pub fn player_snapshot(
 fn record_history(
     state: &AppState,
     settings: &AppSettings,
+    tab_id: &str,
+    profile_id: &str,
     snapshot: &PlayerSnapshot,
 ) -> AppResult<()> {
-    let mut tracker = state
-        .watch
+    let mut media = state
+        .media_by_tab
         .lock()
         .map_err(|_| AppError::State("watch tracker unavailable".into()))?;
+    let tracker = &mut media.entry(tab_id.to_string()).or_default().tracker;
 
     if !settings.history.enabled {
         tracker.reset();
@@ -94,6 +200,7 @@ fn record_history(
     let repository = state.history.clone();
     let keep_thumbnails = settings.history.keep_thumbnails;
     let thumbnails_dir = state.paths.thumbnails_dir.clone();
+    let profile_id = profile_id.to_string();
 
     tauri::async_runtime::spawn(async move {
         if !record.is_new_session {
@@ -107,6 +214,7 @@ fn record_history(
                 position_secs: Some(record.position_secs),
                 watched_secs: Some(record.watched_secs),
                 session_key: Some(record.session_key),
+                profile_id,
             };
             let _ = repository.update_progress(input).await;
             return;
@@ -148,6 +256,7 @@ fn record_history(
             position_secs: Some(record.position_secs),
             watched_secs: Some(record.watched_secs),
             session_key: Some(record.session_key),
+            profile_id,
         };
 
         let _ = repository.record(input).await;

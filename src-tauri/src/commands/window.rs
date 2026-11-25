@@ -4,7 +4,10 @@ use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::core::error::{AppError, AppResult};
 use crate::core::state::AppState;
-use crate::window::layout::{UI_WEBVIEW_LABEL, YOUTUBE_WEBVIEW_LABEL};
+use crate::window::layout::{
+    active_youtube_label, active_youtube_webview, chrome_insets, UI_WEBVIEW_LABEL,
+    YOUTUBE_WEBVIEW_LABEL,
+};
 
 #[tauri::command]
 pub fn app_version() -> String {
@@ -19,11 +22,15 @@ pub fn set_webview_visible(
     label: String,
     visible: bool,
 ) -> AppResult<()> {
-    let webview = window
-        .get_webview(&label)
-        .ok_or_else(|| AppError::NotFound(format!("webview: {label}")))?;
+    let is_youtube = label == YOUTUBE_WEBVIEW_LABEL || label.starts_with("yt-tab-");
+    let webview = if label == YOUTUBE_WEBVIEW_LABEL {
+        active_youtube_webview(&window)
+    } else {
+        window.get_webview(&label)
+    }
+    .ok_or_else(|| AppError::NotFound(format!("webview: {label}")))?;
 
-    if label == YOUTUBE_WEBVIEW_LABEL {
+    if is_youtube {
         state.youtube_visible.store(visible, Ordering::SeqCst);
     }
 
@@ -51,8 +58,7 @@ pub fn yt_play_video(window: Window, video_id: String) -> AppResult<()> {
         )));
     }
 
-    let webview = window
-        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+    let webview = active_youtube_webview(&window)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
 
     let script = format!(
@@ -87,12 +93,20 @@ pub async fn pip_open(app: tauri::AppHandle) -> AppResult<()> {
 /// video from a query string.
 #[tauri::command]
 pub fn pip_current(state: State<'_, AppState>) -> AppResult<Option<crate::player::PlayerSnapshot>> {
-    let snapshot = state
-        .last_player
+    let active_id = state
+        .tabs
+        .lock()
+        .map_err(|_| AppError::State("tabs unavailable".into()))?
+        .active_tab_id()
+        .to_string();
+    let media = state
+        .media_by_tab
         .lock()
         .map_err(|_| AppError::State("player unavailable".into()))?;
 
-    Ok(snapshot.clone())
+    Ok(media
+        .get(&active_id)
+        .and_then(|entry| entry.last_player.clone()))
 }
 
 /// Brings the app back from the mini player.
@@ -123,8 +137,7 @@ pub async fn pip_next(app: tauri::AppHandle, direction: String) -> AppResult<()>
         .get_window(crate::window::layout::MAIN_WINDOW_LABEL)
         .ok_or_else(|| AppError::NotFound("main window".into()))?;
 
-    let youtube = window
-        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+    let youtube = active_youtube_webview(&window)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
 
     let script = match direction.as_str() {
@@ -297,8 +310,7 @@ pub fn pip_drag_end(app: tauri::AppHandle) -> AppResult<()> {
 /// Runs a navigation action in the YouTube webview.
 #[tauri::command]
 pub fn yt_navigate(window: Window, state: State<'_, AppState>, action: String) -> AppResult<()> {
-    let webview = window
-        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+    let webview = active_youtube_webview(&window)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
 
     if action == "reload" {
@@ -407,17 +419,63 @@ pub struct AuthSnapshot {
 
 /// Receives authentication status from the observer and emits to UI.
 #[tauri::command]
-pub fn auth_snapshot(window: Window, auth: AuthSnapshot) -> AppResult<()> {
-    let _ = window
-        .app_handle()
-        .emit(crate::core::events::AUTH_UPDATE, &auth);
+pub fn auth_snapshot(
+    webview: tauri::Webview,
+    window: Window,
+    state: State<'_, AppState>,
+    auth: AuthSnapshot,
+) -> AppResult<()> {
+    let is_active = webview.label() == active_youtube_label(window.app_handle());
+    if let Ok(mut manager) = state.tabs.lock() {
+        let next_name = if auth.logged_in { auth.display_name.clone() } else { None };
+        let next_handle = if auth.logged_in { auth.handle.clone() } else { None };
+        let next_avatar = if auth.logged_in { auth.avatar_url.clone() } else { None };
+
+        let tab_info = manager
+            .tab_by_label(webview.label())
+            .map(|tab| (tab.id.clone(), tab.isolated));
+
+        if let Some((tab_id, isolated)) = tab_info {
+            let mut changed = false;
+            let snapshot = manager.snapshot();
+            for existing in snapshot.tabs {
+                let applies = if isolated {
+                    existing.id == tab_id
+                } else {
+                    !existing.isolated
+                };
+                if !applies {
+                    continue;
+                }
+                if let Some(target) = manager.tab_by_id_mut(&existing.id) {
+                    if target.account_name != next_name
+                        || target.account_handle != next_handle
+                        || target.avatar_url != next_avatar
+                    {
+                        target.account_name = next_name.clone();
+                        target.account_handle = next_handle.clone();
+                        target.avatar_url = next_avatar.clone();
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                let _ = manager.save();
+                let _ = window.app_handle().emit("tabs://updated", manager.snapshot());
+            }
+        }
+    }
+    if is_active {
+        let _ = window
+            .app_handle()
+            .emit(crate::core::events::AUTH_UPDATE, &auth);
+    }
     Ok(())
 }
 
 #[tauri::command]
 pub fn request_auth_snapshot(window: Window) -> AppResult<()> {
-    let webview = window
-        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+    let webview = active_youtube_webview(&window)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
     webview.eval(
         "window.__ytdesktopRequestAuthSnapshot && window.__ytdesktopRequestAuthSnapshot();",
@@ -432,29 +490,40 @@ pub fn youtube_loading_state(state: State<'_, AppState>) -> bool {
     state.youtube_loading.load(Ordering::SeqCst)
 }
 
-/// Ends the startup cover after the visible YouTube webview has rendered a frame.
+/// Ends the loading cover after a visible YouTube webview has rendered a frame.
 #[tauri::command]
-pub fn youtube_surface_painted(window: Window, state: State<'_, AppState>) -> AppResult<bool> {
-    let youtube = window
-        .get_webview(YOUTUBE_WEBVIEW_LABEL)
-        .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
-    let is_youtube_page = youtube
+pub fn youtube_surface_painted(
+    webview: tauri::Webview,
+    window: Window,
+    state: State<'_, AppState>,
+) -> AppResult<bool> {
+    let is_youtube_page = webview
         .url()
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
         .map(|host| host == "youtube.com" || host.ends_with(".youtube.com"))
         .unwrap_or(false);
-    if !is_youtube_page || !state.youtube_visible.load(Ordering::SeqCst) {
+    let active_label = active_youtube_label(window.app_handle());
+    let is_active = webview.label() == active_label;
+    if !is_youtube_page || !is_active || !state.youtube_visible.load(Ordering::SeqCst) {
         return Ok(false);
     }
-    if state.youtube_ready.load(Ordering::SeqCst) {
-        return Ok(true);
+
+    if let Ok(mut painted) = state.painted_webviews.lock() {
+        painted.insert(webview.label().to_string());
     }
 
-    youtube.show()?;
-
+    webview.show()?;
     state.youtube_ready.store(true, Ordering::SeqCst);
+
+    if let Ok(mut target) = state.loading_target_label.lock() {
+        if target.as_deref() == Some(webview.label()) {
+            *target = None;
+        }
+    }
     if state.youtube_loading.swap(false, Ordering::SeqCst) {
+        let _ = crate::window::layout::layout_webviews(&window);
+        let _ = webview.set_focus();
         let _ = window
             .app_handle()
             .emit(crate::core::events::YOUTUBE_LOADING, false);
@@ -522,8 +591,7 @@ pub fn native_pip_return(app: AppHandle, state: State<'_, AppState>) -> AppResul
 
 #[tauri::command]
 pub fn request_youtube_titlebar_icons(window: Window) -> AppResult<()> {
-    let webview = window
-        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+    let webview = active_youtube_webview(&window)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
     webview.eval(
         "window.__ytdesktopReportTitlebarIcons && window.__ytdesktopReportTitlebarIcons();",
@@ -577,44 +645,144 @@ pub struct YoutubeNavState {
 
 #[tauri::command]
 pub fn youtube_nav_state(
+    webview: tauri::Webview,
     window: Window,
+    state: State<'_, AppState>,
     can_go_back: bool,
     can_go_forward: bool,
+    title: Option<String>,
+    url: Option<String>,
 ) -> AppResult<()> {
-    let _ = window.app_handle().emit(
-        "youtube://nav-state",
-        YoutubeNavState {
-            can_go_back,
-            can_go_forward,
-        },
-    );
+    let is_active = webview.label() == active_youtube_label(window.app_handle());
+    if let Ok(mut manager) = state.tabs.lock() {
+        let mut changed = false;
+        if let Some(tab) = manager.tab_by_label_mut(webview.label()) {
+            tab.can_go_back = can_go_back;
+            tab.can_go_forward = can_go_forward;
+            if let Some(next_title) = title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+                if tab.title != next_title {
+                    tab.title = next_title.to_string();
+                    changed = true;
+                }
+            }
+            if let Some(next_url) = url
+                .as_deref()
+                .and_then(crate::window::layout::normalize_youtube_url)
+            {
+                if tab.url != next_url {
+                    tab.url = next_url;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            let _ = manager.save();
+            let _ = window.app_handle().emit("tabs://updated", manager.snapshot());
+        }
+    }
+    if is_active {
+        let _ = window.app_handle().emit(
+            "youtube://nav-state",
+            YoutubeNavState {
+                can_go_back,
+                can_go_forward,
+            },
+        );
+    }
     Ok(())
 }
 
 #[tauri::command]
 pub fn request_youtube_nav_state(window: Window) -> AppResult<()> {
-    let webview = window
-        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+    let webview = active_youtube_webview(&window)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
     webview.eval("window.__ytdesktopReportNavState && window.__ytdesktopReportNavState();")?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn youtube_voice_state(window: Window, active: bool) -> AppResult<()> {
-    let _ = window.app_handle().emit("youtube://voice-state", active);
+pub fn youtube_voice_state(
+    webview: tauri::Webview,
+    window: Window,
+    active: bool,
+) -> AppResult<()> {
+    if webview.label() == active_youtube_label(window.app_handle()) {
+        let _ = window.app_handle().emit("youtube://voice-state", active);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YoutubeContextMenuPayload {
+    pub x: f64,
+    pub y: f64,
+    pub kind: String,
+    pub page_url: String,
+    pub page_title: String,
+    pub can_go_back: bool,
+    pub can_go_forward: bool,
+    pub video_id: Option<String>,
+    pub video_url: Option<String>,
+    pub video_title: Option<String>,
+    pub channel_name: Option<String>,
+    pub link_url: Option<String>,
+    pub selection_text: Option<String>,
+    pub current_time_secs: Option<u64>,
+}
+
+#[tauri::command]
+pub fn youtube_context_menu(
+    webview: tauri::Webview,
+    window: Window,
+    mut payload: YoutubeContextMenuPayload,
+) -> AppResult<()> {
+    if webview.label() != active_youtube_label(window.app_handle()) {
+        return Ok(());
+    }
+    let (left, top, _) = chrome_insets(&window);
+    payload.x += left;
+    payload.y += top;
+    let _ = window.app_handle().emit("youtube://context-menu", payload);
     Ok(())
 }
 
 /// Opens the centered Google login modal over the main application.
 #[tauri::command]
-pub fn open_auth_modal(app: tauri::AppHandle) -> AppResult<()> {
+pub async fn open_auth_modal(app: tauri::AppHandle, state: State<'_, AppState>) -> AppResult<()> {
     let main = app
         .get_window(crate::window::layout::MAIN_WINDOW_LABEL)
         .ok_or_else(|| AppError::State("main window not found".into()))?;
     let modal = app
         .get_window(crate::window::layout::AUTH_MODAL_WINDOW_LABEL)
         .ok_or_else(|| AppError::State("auth modal window not found".into()))?;
+
+    let target_dir = state
+        .tabs
+        .lock()
+        .ok()
+        .and_then(|m| {
+            m.active_tab()
+                .map(|t| state.paths.tab_webview_dir(&t.id, t.isolated))
+        })
+        .unwrap_or_else(|| state.paths.tab_webview_dir("tab-1", false));
+
+    let needs_rebuild = state
+        .auth_modal_dir
+        .lock()
+        .map(|guard| guard.as_ref() != Some(&target_dir))
+        .unwrap_or(false);
+
+    if needs_rebuild {
+        if let Some(old_web) = modal.get_webview(crate::window::layout::AUTH_WEB_WEBVIEW_LABEL) {
+            let _ = old_web.close();
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        }
+        crate::window::layout::build_auth_web_webview(&modal, &target_dir)?;
+        if let Ok(mut guard) = state.auth_modal_dir.lock() {
+            *guard = Some(target_dir);
+        }
+    }
 
     let is_max = main.is_maximized().unwrap_or(false);
     if is_max {
@@ -717,8 +885,7 @@ pub fn is_auth_modal_visible(app: tauri::AppHandle) -> AppResult<bool> {
 /// Injects or removes the CSS that hides the masthead and collapses its height.
 #[tauri::command]
 pub fn set_masthead_integrated(window: Window, integrated: bool) -> AppResult<()> {
-    let webview = window
-        .get_webview(YOUTUBE_WEBVIEW_LABEL)
+    let webview = active_youtube_webview(&window)
         .ok_or_else(|| AppError::NotFound("YouTube webview".into()))?;
 
     webview.eval(&format!(

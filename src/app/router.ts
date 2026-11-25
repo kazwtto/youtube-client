@@ -3,6 +3,7 @@ export type RouteId = "home" | "settings" | "history" | "extensions" | "rpc";
 export interface RouteDefinition {
   id: RouteId;
   render: (host: HTMLElement) => void | Promise<void>;
+  beforeActivate?: (host: HTMLElement) => void | Promise<void>;
   preservePreviousUntilActivated?: boolean;
 }
 
@@ -75,6 +76,10 @@ export class Router {
         if (navigation !== this.navigation) return;
       }
       if (changedRoute) {
+        if (route.beforeActivate) {
+          await route.beforeActivate(targetContainer);
+          if (navigation !== this.navigation) return;
+        }
         targetContainer.dispatchEvent(new CustomEvent("page:activated", { bubbles: true }));
       }
     }

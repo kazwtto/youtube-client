@@ -1,11 +1,11 @@
-import { autoUpdate, computePosition, flip, offset, shift, size, type Placement } from "@floating-ui/dom";
+import { autoUpdate, computePosition, flip, offset, shift, size, type Placement, type VirtualElement } from "@floating-ui/dom";
 import { createEffect, createSignal, onCleanup, type Accessor, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 
 export interface FloatingMenuProps {
   id?: string;
   open: Accessor<boolean>;
-  anchor: Accessor<HTMLElement | undefined>;
+  anchor: Accessor<HTMLElement | VirtualElement | undefined>;
   placement?: Placement;
   align?: "start" | "end";
   width?: number;
@@ -80,7 +80,7 @@ export function FloatingMenu(props: FloatingMenuProps) {
     const target = event.target;
     if (!(target instanceof Node)) return;
     const anchorEl = props.anchor();
-    if (anchorEl?.contains(target) || menuEl?.contains(target)) return;
+    if ((anchorEl instanceof Node && anchorEl.contains(target)) || menuEl?.contains(target)) return;
     props.onClose();
   };
 

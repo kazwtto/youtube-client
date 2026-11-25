@@ -7,6 +7,15 @@ use crate::player::model::PlayerSnapshot;
 pub const DEFAULT_APP_ID: &str = "847682519214456862";
 pub const DEFAULT_MUSIC_APP_ID: &str = "1064295774592180254";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RpcTabMode {
+    #[default]
+    Smart,
+    ActiveTabOnly,
+    PrimaryPlaying,
+}
+
 /// Discord Rich Presence settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -24,6 +33,8 @@ pub struct RpcSettings {
     pub show_timestamps: bool,
     /// Clears the presence when playback is paused.
     pub idle_when_paused: bool,
+    /// Multi-tab source selection policy.
+    pub tab_mode: RpcTabMode,
 }
 
 impl Default for RpcSettings {
@@ -36,6 +47,66 @@ impl Default for RpcSettings {
             show_channel_button: true,
             show_timestamps: true,
             idle_when_paused: true,
+            tab_mode: RpcTabMode::Smart,
+        }
+    }
+}
+
+pub struct RpcTabCandidate<'a> {
+    pub tab_id: &'a str,
+    pub is_active: bool,
+    pub eligible: bool,
+    pub last_updated_ms: i64,
+    pub snapshot: &'a PlayerSnapshot,
+}
+
+/// Selects which tab's player snapshot should drive Discord Rich Presence.
+pub fn select_rpc_candidate<'b, 'a>(
+    candidates: &'b [RpcTabCandidate<'a>],
+    mode: RpcTabMode,
+    current_primary_tab_id: Option<&str>,
+) -> Option<&'b RpcTabCandidate<'a>> {
+    let eligible: Vec<&'b RpcTabCandidate<'a>> =
+        candidates.iter().filter(|c| c.eligible && c.snapshot.video_id.is_some()).collect();
+    if eligible.is_empty() {
+        return None;
+    }
+
+    match mode {
+        RpcTabMode::ActiveTabOnly => eligible.into_iter().find(|c| c.is_active),
+        RpcTabMode::Smart => {
+            if let Some(active) = eligible.iter().copied().find(|c| c.is_active && c.snapshot.is_playing) {
+                return Some(active);
+            }
+            if let Some(playing_bg) = eligible
+                .iter()
+                .copied()
+                .filter(|c| c.snapshot.is_playing)
+                .max_by_key(|c| c.last_updated_ms)
+            {
+                return Some(playing_bg);
+            }
+            eligible.into_iter().find(|c| c.is_active)
+        }
+        RpcTabMode::PrimaryPlaying => {
+            if let Some(primary_id) = current_primary_tab_id {
+                if let Some(primary) = eligible
+                    .iter()
+                    .copied()
+                    .find(|c| c.tab_id == primary_id && c.snapshot.is_playing)
+                {
+                    return Some(primary);
+                }
+            }
+            if let Some(playing) = eligible
+                .iter()
+                .copied()
+                .filter(|c| c.snapshot.is_playing)
+                .max_by_key(|c| (c.is_active, c.last_updated_ms))
+            {
+                return Some(playing);
+            }
+            eligible.into_iter().find(|c| c.is_active)
         }
     }
 }
@@ -434,5 +505,43 @@ mod tests {
         assert_eq!(activity.state, "por A channel");
         assert_eq!(activity.buttons[0].label, "Assistir no YouTube");
         assert_eq!(activity.buttons[1].label, "Abrir canal");
+    }
+
+    #[test]
+    fn selects_rpc_tab_across_modes() {
+        let mut active_paused = playing_snapshot();
+        active_paused.is_playing = false;
+        let bg_playing = playing_snapshot();
+
+        let candidates = vec![
+            RpcTabCandidate {
+                tab_id: "tab-1",
+                is_active: true,
+                eligible: true,
+                last_updated_ms: 100,
+                snapshot: &active_paused,
+            },
+            RpcTabCandidate {
+                tab_id: "tab-2",
+                is_active: false,
+                eligible: true,
+                last_updated_ms: 200,
+                snapshot: &bg_playing,
+            },
+        ];
+
+        assert_eq!(
+            select_rpc_candidate(&candidates, RpcTabMode::Smart, None).map(|c| c.tab_id),
+            Some("tab-2")
+        );
+        assert_eq!(
+            select_rpc_candidate(&candidates, RpcTabMode::ActiveTabOnly, None).map(|c| c.tab_id),
+            Some("tab-1")
+        );
+        assert_eq!(
+            select_rpc_candidate(&candidates, RpcTabMode::PrimaryPlaying, Some("tab-2"))
+                .map(|c| c.tab_id),
+            Some("tab-2")
+        );
     }
 }

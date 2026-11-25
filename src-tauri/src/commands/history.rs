@@ -4,16 +4,29 @@ use crate::core::error::AppResult;
 use crate::core::state::AppState;
 use crate::history::{HistoryEntry, HistoryQuery};
 
+fn active_profile_id(state: &AppState) -> String {
+    state
+        .tabs
+        .lock()
+        .ok()
+        .map(|manager| manager.active_history_scope().to_string())
+        .unwrap_or_else(|| crate::tabs::DEFAULT_HISTORY_SCOPE.to_string())
+}
+
 #[tauri::command]
 pub async fn history_list(
     state: State<'_, AppState>,
-    query: HistoryQuery,
+    mut query: HistoryQuery,
 ) -> AppResult<Vec<HistoryEntry>> {
+    if query.profile_id.is_none() {
+        query.profile_id = Some(active_profile_id(&state));
+    }
     state.history.list(query).await
 }
 
 #[tauri::command]
 pub async fn history_resume_position(
+    webview: tauri::Webview,
     state: State<'_, AppState>,
     video_id: String,
 ) -> AppResult<Option<f64>> {
@@ -28,37 +41,51 @@ pub async fn history_resume_position(
         )));
     }
 
-    state.history.resume_position(&video_id).await
+    let profile_id = state
+        .tabs
+        .lock()
+        .ok()
+        .and_then(|manager| {
+            manager
+                .tab_by_label(webview.label())
+                .map(|t| t.history_scope().to_string())
+        })
+        .unwrap_or_else(|| active_profile_id(&state));
+
+    state.history.resume_position(&video_id, &profile_id).await
 }
 
 #[tauri::command]
-pub async fn history_clear(state: State<'_, AppState>) -> AppResult<()> {
-    state.history.clear().await?;
+pub async fn history_clear(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+) -> AppResult<()> {
+    let resolved = profile_id.unwrap_or_else(|| active_profile_id(&state));
+    state.history.clear(Some(&resolved)).await?;
 
-    let thumbnails_dir = state.paths.thumbnails_dir.clone();
-    let _ = tokio::task::spawn_blocking(move || {
-        if let Ok(entries) = std::fs::read_dir(thumbnails_dir) {
-            for entry in entries.flatten() {
-                let _ = std::fs::remove_file(entry.path());
+    if resolved == "all" {
+        let thumbnails_dir = state.paths.thumbnails_dir.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(entries) = std::fs::read_dir(thumbnails_dir) {
+                for entry in entries.flatten() {
+                    let _ = std::fs::remove_file(entry.path());
+                }
             }
-        }
-    })
-    .await;
+        })
+        .await;
+    }
 
     Ok(())
 }
 
 #[tauri::command]
-pub async fn history_delete(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    state.history.delete(&id).await?;
-
-    let thumb_file = state.paths.thumbnails_dir.join(format!("{}.jpg", id));
-    let _ = tokio::task::spawn_blocking(move || {
-        if thumb_file.exists() {
-            let _ = std::fs::remove_file(thumb_file);
-        }
-    })
-    .await;
+pub async fn history_delete(
+    state: State<'_, AppState>,
+    id: String,
+    profile_id: Option<String>,
+) -> AppResult<()> {
+    let resolved = profile_id.unwrap_or_else(|| active_profile_id(&state));
+    state.history.delete(&id, Some(&resolved)).await?;
 
     Ok(())
 }

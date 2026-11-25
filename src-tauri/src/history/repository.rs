@@ -35,11 +35,17 @@ impl HistoryRepository {
         Ok(Self { pool })
     }
 
-    /// Lists history aggregated by video, with optional title/channel search.
+    /// Lists history aggregated by video, with optional title/channel search and profile scope.
     pub async fn list(&self, query: HistoryQuery) -> AppResult<Vec<HistoryEntry>> {
         let limit = query.limit.clamp(1, 500);
         let offset = query.offset.max(0);
         let search = format!("%{}%", query.search.trim());
+        let profile_filter = query
+            .profile_id
+            .as_deref()
+            .filter(|id| !id.is_empty() && *id != "all")
+            .unwrap_or("default");
+        let all_profiles = query.profile_id.as_deref() == Some("all");
 
         let rows = sqlx::query_as::<_, HistoryEntry>(
             r#"
@@ -50,11 +56,16 @@ impl HistoryRepository {
                    v.thumbnail_path AS thumbnail_path,
                    MAX(w.watched_at) AS last_watched_at,
                    COUNT(w.id) AS watch_count,
-                   (SELECT latest.position_secs FROM watch_events latest WHERE latest.video_id = v.id ORDER BY latest.watched_at DESC, latest.id DESC LIMIT 1) AS position_secs,
-                   (SELECT latest.watched_secs FROM watch_events latest WHERE latest.video_id = v.id ORDER BY latest.watched_at DESC, latest.id DESC LIMIT 1) AS watched_secs
+                   (SELECT latest.position_secs FROM watch_events latest
+                    WHERE latest.video_id = v.id AND (?4 OR latest.profile_id = ?5)
+                    ORDER BY latest.watched_at DESC, latest.id DESC LIMIT 1) AS position_secs,
+                   (SELECT latest.watched_secs FROM watch_events latest
+                    WHERE latest.video_id = v.id AND (?4 OR latest.profile_id = ?5)
+                    ORDER BY latest.watched_at DESC, latest.id DESC LIMIT 1) AS watched_secs
             FROM videos v
             JOIN watch_events w ON w.video_id = v.id
             WHERE (?1 = '%%' OR v.title LIKE ?1 OR v.channel LIKE ?1)
+              AND (?4 OR w.profile_id = ?5)
             GROUP BY v.id, v.title, v.channel, v.duration_secs, v.thumbnail_path
             ORDER BY last_watched_at DESC
             LIMIT ?2 OFFSET ?3
@@ -63,25 +74,28 @@ impl HistoryRepository {
         .bind(&search)
         .bind(limit)
         .bind(offset)
+        .bind(all_profiles)
+        .bind(profile_filter)
         .fetch_all(&self.pool)
         .await?;
 
         Ok(rows)
     }
 
-    /// Returns the latest useful resume point for a video, if it has one.
-    pub async fn resume_position(&self, video_id: &str) -> AppResult<Option<f64>> {
+    /// Returns the latest useful resume point for a video within a profile.
+    pub async fn resume_position(&self, video_id: &str, profile_id: &str) -> AppResult<Option<f64>> {
         let progress = sqlx::query_as::<_, (f64, Option<f64>)>(
             r#"
             SELECT latest.position_secs, v.duration_secs
             FROM watch_events latest
             JOIN videos v ON v.id = latest.video_id
-            WHERE latest.video_id = ?1
+            WHERE latest.video_id = ?1 AND latest.profile_id = ?2
             ORDER BY latest.watched_at DESC, latest.id DESC
             LIMIT 1
             "#,
         )
         .bind(video_id)
+        .bind(profile_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -125,8 +139,8 @@ impl HistoryRepository {
 
         sqlx::query(
             r#"
-            INSERT INTO watch_events (video_id, watched_at, position_secs, completed, watched_secs, session_key)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO watch_events (video_id, watched_at, position_secs, completed, watched_secs, session_key, profile_id)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             "#,
         )
         .bind(&event.video_id)
@@ -135,6 +149,7 @@ impl HistoryRepository {
         .bind(false)
         .bind(event.watched_secs.unwrap_or_default())
         .bind(&event.session_key)
+        .bind(&event.profile_id)
         .execute(&self.pool)
         .await?;
 
@@ -207,10 +222,11 @@ impl HistoryRepository {
             }
 
             sqlx::query(
-                "INSERT INTO watch_events (video_id, watched_at, position_secs, completed) VALUES (?1, ?2, 0.0, 0)",
+                "INSERT INTO watch_events (video_id, watched_at, position_secs, completed, profile_id) VALUES (?1, ?2, 0.0, 0, ?3)",
             )
             .bind(&event.video_id)
             .bind(watched_at)
+            .bind(&event.profile_id)
             .execute(&mut *tx)
             .await?;
             imported += 1;
@@ -220,23 +236,53 @@ impl HistoryRepository {
         Ok(imported)
     }
 
-    /// Removes a video and, by cascade, its events.
-    pub async fn delete(&self, id: &str) -> AppResult<()> {
-        sqlx::query("DELETE FROM videos WHERE id = ?1")
+    /// Removes a video's events for a profile (or all profiles) and prunes orphan video metadata.
+    pub async fn delete(&self, id: &str, profile_id: Option<&str>) -> AppResult<()> {
+        if let Some(pid) = profile_id.filter(|value| !value.is_empty() && *value != "all") {
+            let mut tx = self.pool.begin().await?;
+            sqlx::query("DELETE FROM watch_events WHERE video_id = ?1 AND profile_id = ?2")
+                .bind(id)
+                .bind(pid)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                "DELETE FROM videos WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM watch_events WHERE video_id = ?1)",
+            )
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+            tx.commit().await?;
+        } else {
+            sqlx::query("DELETE FROM videos WHERE id = ?1")
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 
-    /// Clears all history.
-    pub async fn clear(&self) -> AppResult<()> {
-        sqlx::query("DELETE FROM watch_events")
-            .execute(&self.pool)
+    /// Clears history for a profile (or all profiles) and prunes orphan video metadata.
+    pub async fn clear(&self, profile_id: Option<&str>) -> AppResult<()> {
+        if let Some(pid) = profile_id.filter(|value| !value.is_empty() && *value != "all") {
+            let mut tx = self.pool.begin().await?;
+            sqlx::query("DELETE FROM watch_events WHERE profile_id = ?1")
+                .bind(pid)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                "DELETE FROM videos WHERE NOT EXISTS (SELECT 1 FROM watch_events WHERE video_id = videos.id)",
+            )
+            .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM videos")
-            .execute(&self.pool)
-            .await?;
+            tx.commit().await?;
+        } else {
+            sqlx::query("DELETE FROM watch_events")
+                .execute(&self.pool)
+                .await?;
+            sqlx::query("DELETE FROM videos")
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 }
@@ -271,6 +317,7 @@ mod tests {
             position_secs: None,
             watched_secs: None,
             session_key: None,
+            profile_id: "default".into(),
         }
     }
 
@@ -368,7 +415,7 @@ mod tests {
             .await
             .expect("record");
 
-        repository.delete("a").await.expect("delete");
+        repository.delete("a", None).await.expect("delete");
         let rows = repository
             .list(HistoryQuery::default())
             .await
@@ -376,12 +423,61 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "b");
 
-        repository.clear().await.expect("clear");
+        repository.clear(None).await.expect("clear");
         assert!(repository
             .list(HistoryQuery::default())
             .await
             .expect("list")
             .is_empty());
+
+        drop(repository);
+        let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
+    }
+
+    #[tokio::test]
+    async fn isolates_history_by_profile() {
+        let path = temp_db("profiles");
+        let repository = HistoryRepository::connect(&path).await.expect("connect");
+
+        let mut e1 = event("v1", "Video 1", "Chan", None, 1_000);
+        e1.profile_id = "default".into();
+        e1.position_secs = Some(42.0);
+        repository.record(e1).await.expect("record default");
+
+        let mut e2 = event("v1", "Video 1", "Chan", None, 2_000);
+        e2.profile_id = "alt".into();
+        e2.position_secs = Some(99.0);
+        repository.record(e2).await.expect("record alt");
+
+        assert_eq!(
+            repository.resume_position("v1", "default").await.expect("resume"),
+            Some(42.0)
+        );
+        assert_eq!(
+            repository.resume_position("v1", "alt").await.expect("resume"),
+            Some(99.0)
+        );
+
+        repository.delete("v1", Some("default")).await.expect("delete default");
+        assert!(repository
+            .list(HistoryQuery {
+                profile_id: Some("default".into()),
+                ..Default::default()
+            })
+            .await
+            .expect("list default")
+            .is_empty());
+        assert_eq!(
+            repository
+                .list(HistoryQuery {
+                    profile_id: Some("alt".into()),
+                    ..Default::default()
+                })
+                .await
+                .expect("list alt")
+                .len(),
+            1
+        );
 
         drop(repository);
         let _ = std::fs::remove_dir_all(path.parent().expect("parent"));

@@ -1,9 +1,9 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { For, createSignal, onCleanup, onMount, type JSX } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 
-import { LANGUAGES, normalizeLanguage, setLanguage, t, type TranslationKey } from "../i18n";
-import { api, type AppSettings, type ThemeMode, type ThemeSummary, type TitlebarStyle } from "../lib/api";
+import { getLocale, LANGUAGES, normalizeLanguage, setLanguage, t, type TranslationKey } from "../i18n";
+import { api, type AppSettings, type ThemeMode, type ThemeSummary, type TitlebarStyle, type UpdateCheckResult } from "../lib/api";
 import { Icon } from "../components/icons";
 import { Select, type SelectOption } from "../components/select";
 import { SettingRow, SwitchSetting } from "../components/setting-row";
@@ -13,8 +13,15 @@ const THEME_NAME_KEYS: Record<string, TranslationKey> = {
   "high-contrast": "themes.highContrast.name",
 };
 
-const SETTINGS_TABS = ["appearance", "pip", "history", "app"] as const;
+const SETTINGS_TABS = ["appearance", "tabs", "pip", "history", "updates", "app"] as const;
 type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+let requestedTab: SettingsTab | null = null;
+
+export function setRequestedSettingsTab(tab: string): void {
+  requestedTab = SETTINGS_TABS.includes(tab as SettingsTab) ? (tab as SettingsTab) : null;
+  document.dispatchEvent(new CustomEvent("settings:tab", { detail: tab }));
+}
 
 interface SettingsPageProps {
   initial: AppSettings;
@@ -28,6 +35,10 @@ function SettingsPage(props: SettingsPageProps) {
   const [activeTab, setActiveTab] = createSignal(props.initialTab);
   const [radius, setRadius] = createSignal(props.initial.theme.radius);
   const [horizontalTabs, setHorizontalTabs] = createSignal(window.matchMedia("(max-width: 900px)").matches);
+  const [clearingIsolated, setClearingIsolated] = createSignal(false);
+  const [checkingUpdates, setCheckingUpdates] = createSignal(false);
+  const [updateResult, setUpdateResult] = createSignal<UpdateCheckResult | null>(null);
+  const [updateError, setUpdateError] = createSignal("");
   let form!: HTMLFormElement;
   let timer: number | undefined;
   const panelAnimationTimers = new Map<SettingsTab, number>();
@@ -83,6 +94,18 @@ function SettingsPage(props: SettingsPageProps) {
         pipOnMinimize: checked("pipOnMinimize"),
         pipOnBlur: checked("pipOnBlur"),
       },
+      tabs: {
+        ...base.tabs,
+        enabled: checked("tabsEnabled"),
+        layout: (value("tabLayout") || base.tabs.layout) as AppSettings["tabs"]["layout"],
+        autoSleepMinutes: Math.max(0, Number(value("tabAutoSleep")) || 0),
+        defaultIsolated: checked("tabDefaultIsolated"),
+      },
+      updates: {
+        ...base.updates,
+        autoCheck: checked("updatesAutoCheck"),
+        includePrerelease: checked("updatesIncludePrerelease"),
+      },
     };
   };
 
@@ -118,6 +141,8 @@ function SettingsPage(props: SettingsPageProps) {
         history: collected.history,
         pip: collected.pip,
         general: collected.general,
+        tabs: collected.tabs,
+        updates: collected.updates,
       };
       const saved = await api.settingsUpdate(next);
       if (editVersion === savedVersion) {
@@ -162,6 +187,18 @@ function SettingsPage(props: SettingsPageProps) {
     document.dispatchEvent(new CustomEvent("app:browser-import"));
   };
 
+  const clearIsolatedData = async (): Promise<void> => {
+    if (clearingIsolated()) return;
+    setClearingIsolated(true);
+    try {
+      await api.tabsClearIsolatedData();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setClearingIsolated(false);
+    }
+  };
+
   const handleTabKeyDown: JSX.EventHandlerUnion<HTMLElement, KeyboardEvent> = (event) => {
     const tab = (event.target as HTMLElement).dataset.tab as SettingsTab | undefined;
     if (!tab) return;
@@ -189,11 +226,38 @@ function SettingsPage(props: SettingsPageProps) {
   };
 
   let disposed = false;
+  const checkUpdatesNow = async (): Promise<void> => {
+    if (checkingUpdates()) return;
+    setCheckingUpdates(true);
+    setUpdateError("");
+    try {
+      const include = current().updates?.includePrerelease ?? true;
+      const result = await api.updatesCheck(include);
+      setUpdateResult(result);
+    } catch (error) {
+      setUpdateError(t("updates.checkFailed", { error: String(error) }));
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  let unlistenUpdates: UnlistenFn | undefined;
   let unlistenSettings: UnlistenFn | undefined;
+
+  const onRequestedTabEvent = (event: Event): void => {
+    if (event instanceof CustomEvent && typeof event.detail === "string") {
+      if (SETTINGS_TABS.includes(event.detail as SettingsTab)) {
+        requestedTab = null;
+        activateTab(event.detail as SettingsTab);
+      }
+    }
+  };
 
   onCleanup(() => {
     disposed = true;
     unlistenSettings?.();
+    unlistenUpdates?.();
+    document.removeEventListener("settings:tab", onRequestedTabEvent);
     if (timer !== undefined) window.clearTimeout(timer);
     for (const animationTimer of panelAnimationTimers.values()) window.clearTimeout(animationTimer);
     panelAnimationTimers.clear();
@@ -205,6 +269,7 @@ function SettingsPage(props: SettingsPageProps) {
       setHorizontalTabs(media.matches);
     };
     media.addEventListener("change", updateOrientation);
+    document.addEventListener("settings:tab", onRequestedTabEvent);
     void listen<AppSettings>("settings://changed", (event) => {
       if (saving || timer !== undefined) return;
       setCurrent(event.payload);
@@ -213,6 +278,20 @@ function SettingsPage(props: SettingsPageProps) {
       .then((stop) => {
         if (disposed) stop();
         else unlistenSettings = stop;
+      })
+      .catch(() => undefined);
+    void api
+      .updatesLastStatus()
+      .then((cached) => {
+        if (!disposed && cached) setUpdateResult(cached);
+      })
+      .catch(() => undefined);
+    void listen<UpdateCheckResult>("updates://status", (event) => {
+      if (event.payload) setUpdateResult(event.payload);
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlistenUpdates = stop;
       })
       .catch(() => undefined);
     onCleanup(() => media.removeEventListener("change", updateOrientation));
@@ -232,13 +311,17 @@ function SettingsPage(props: SettingsPageProps) {
           <nav class="settings-nav" role="tablist" aria-orientation={horizontalTabs() ? "horizontal" : "vertical"} aria-label={t("settings.title")} onKeyDown={handleTabKeyDown}>
             <For each={SETTINGS_TABS}>
               {(tab) => {
-                const key: TranslationKey = tab === "pip"
-                  ? "settings.pipTitle"
-                  : tab === "app"
-                    ? "settings.application"
-                    : tab === "history"
-                      ? "settings.historyTitle"
-                      : "settings.appearance";
+                const key: TranslationKey = tab === "tabs"
+                  ? "settings.tabsTitle"
+                  : tab === "pip"
+                    ? "settings.pipTitle"
+                    : tab === "updates"
+                      ? "settings.updatesTitle"
+                      : tab === "app"
+                        ? "settings.application"
+                        : tab === "history"
+                          ? "settings.historyTitle"
+                          : "settings.appearance";
                 return (
                   <button
                     type="button"
@@ -335,6 +418,51 @@ function SettingsPage(props: SettingsPageProps) {
             <SwitchSetting name="integrateMasthead" checked={current().general.integrateMasthead} label={t("settings.integrateMasthead")} hint={t("settings.integrateMastheadHint")} experimental={t("settings.experimental")} />
           </section>
 
+          <section id="settings-panel-tabs" class="yt-section" role="tabpanel" aria-labelledby="settings-tab-tabs" tabIndex={0} hidden={activeTab() !== "tabs"}>
+            <p class="yt-section__hint">{t("settings.tabsHint")}</p>
+            <SwitchSetting
+              name="tabsEnabled"
+              checked={current().tabs.enabled ?? true}
+              label={t("tabs.enabledTitle")}
+              hint={t("tabs.enabledHint")}
+            />
+            <div class="yt-settings-group" classList={{ "is-disabled": !(current().tabs.enabled ?? true) }}>
+              <SettingRow label={t("tabs.layoutTitle")} hint={t("tabs.layoutHint")} control={
+                <Select name="tabLayout" label={() => t("tabs.layoutTitle")} value={() => current().tabs.layout} options={() => [
+                  { value: "command", label: t("tabs.layoutCommand") },
+                  { value: "bottom", label: t("tabs.layoutBottom") },
+                  { value: "floating", label: t("tabs.layoutFloating") },
+                  { value: "sidebar", label: t("tabs.layoutSidebar") },
+                  { value: "sidebarHover", label: t("tabs.layoutSidebarHover") },
+                ]} onChange={() => queueSave(0)} />
+              } />
+              <SwitchSetting
+                name="tabDefaultIsolated"
+                checked={current().tabs.defaultIsolated}
+                label={t("tabs.defaultIsolated")}
+                hint={t("tabs.defaultIsolatedHint")}
+              />
+              <SettingRow label={t("tabs.autoSleep")} hint={t("tabs.autoSleepHint")} control={
+                <Select name="tabAutoSleep" label={() => t("tabs.autoSleep")} value={() => String(current().tabs.autoSleepMinutes)} options={() => [
+                  { value: "0", label: t("tabs.autoSleepOff") },
+                  { value: "15", label: t("tabs.autoSleepMinutes", { minutes: 15 }) },
+                  { value: "30", label: t("tabs.autoSleepMinutes", { minutes: 30 }) },
+                  { value: "60", label: t("tabs.autoSleepMinutes", { minutes: 60 }) },
+                ]} onChange={() => queueSave(0)} />
+              } />
+              <SettingRow label={t("tabs.clearIsolatedTitle")} hint={t("tabs.clearIsolatedHint")} control={
+                <button
+                  type="button"
+                  class="yt-button yt-button--tonal"
+                  disabled={clearingIsolated()}
+                  onClick={() => void clearIsolatedData()}
+                >
+                  {t("tabs.clearIsolatedAction")}
+                </button>
+              } />
+            </div>
+          </section>
+
           <section id="settings-panel-pip" class="yt-section" role="tabpanel" aria-labelledby="settings-tab-pip" tabIndex={0} hidden={activeTab() !== "pip"}>
             <p class="yt-section__hint">{t("settings.pipHint")}</p>
             <SwitchSetting name="pipEnabled" checked={current().pip.enabled} label={t("settings.pipEnabled")} hint={t("settings.pipEnabledHint")} />
@@ -360,6 +488,100 @@ function SettingsPage(props: SettingsPageProps) {
             <SwitchSetting name="historyThumbnails" checked={current().history.keepThumbnails} label={t("settings.historyThumbnails")} />
           </section>
 
+          <section id="settings-panel-updates" class="yt-section" role="tabpanel" aria-labelledby="settings-tab-updates" tabIndex={0} hidden={activeTab() !== "updates"}>
+            <p class="yt-section__hint">{t("settings.updatesHint")}</p>
+
+            <div class="updates-card" classList={{ "is-available": Boolean(updateResult()?.updateAvailable) }}>
+              <div class="updates-card__top">
+                <div class="updates-card__info">
+                  <div class="updates-card__heading">
+                    <span class="updates-card__version">{t("updates.currentVersion", { version: props.version })}</span>
+                    <Show when={updateResult()?.isPrerelease && updateResult()?.updateAvailable}>
+                      <span class="updates-badge">{t("updates.prereleaseBadge")}</span>
+                    </Show>
+                  </div>
+                  <p class="updates-card__status" role="status" aria-live="polite">
+                    {updateError()
+                      ? updateError()
+                      : checkingUpdates()
+                        ? t("updates.checking")
+                        : updateResult()?.updateAvailable && updateResult()?.latestVersion
+                          ? t("updates.available", { version: updateResult()!.latestVersion! })
+                          : updateResult() && !updateResult()!.latestVersion
+                            ? t("updates.nonePublished")
+                            : updateResult()
+                              ? t("updates.upToDate")
+                              : t("settings.updatesHint")}
+                  </p>
+                  <Show when={updateResult()?.checkedAt}>
+                    {(ts) => (
+                      <span class="updates-card__meta">
+                        {t("updates.lastChecked", {
+                          time: new Date(ts()).toLocaleTimeString(getLocale(), { hour: "2-digit", minute: "2-digit" }),
+                        })}
+                      </span>
+                    )}
+                  </Show>
+                </div>
+                <button
+                  type="button"
+                  class="yt-button yt-button--filled"
+                  disabled={checkingUpdates()}
+                  onClick={() => void checkUpdatesNow()}
+                >
+                  {checkingUpdates() ? t("updates.checking") : t("updates.checkNow")}
+                </button>
+              </div>
+
+              <Show when={updateResult()?.updateAvailable}>
+                {(available) => {
+                  const res = () => updateResult()!;
+                  return (
+                    <div class="updates-release" data-available={String(available())}>
+                      <Show when={res().releaseName}>
+                        <strong class="updates-release__title">{res().releaseName}</strong>
+                      </Show>
+                      <Show when={res().releaseNotes}>
+                        <pre class="updates-release__notes">{res().releaseNotes}</pre>
+                      </Show>
+                      <div class="updates-release__actions">
+                        <Show when={res().downloadUrl}>
+                          <button
+                            type="button"
+                            class="yt-button yt-button--filled"
+                            onClick={() => void api.updatesOpenUrl(res().downloadUrl!).catch(() => undefined)}
+                          >
+                            {t("updates.download")}
+                          </button>
+                        </Show>
+                        <button
+                          type="button"
+                          class="yt-button yt-button--tonal"
+                          onClick={() => void api.updatesOpenUrl(res().releaseUrl).catch(() => undefined)}
+                        >
+                          {t("updates.viewOnGithub")}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }}
+              </Show>
+            </div>
+
+            <SwitchSetting
+              name="updatesAutoCheck"
+              checked={current().updates?.autoCheck ?? true}
+              label={t("updates.autoCheck")}
+              hint={t("updates.autoCheckHint")}
+            />
+            <SwitchSetting
+              name="updatesIncludePrerelease"
+              checked={current().updates?.includePrerelease ?? true}
+              label={t("updates.includePrerelease")}
+              hint={t("updates.includePrereleaseHint")}
+            />
+          </section>
+
           <section id="settings-panel-app" class="yt-section" role="tabpanel" aria-labelledby="settings-tab-app" tabIndex={0} hidden={activeTab() !== "app"}>
             <p class="yt-section__hint">{t("settings.hardwareAccelerationHint")}</p>
             <SwitchSetting name="hardwareAcceleration" checked={current().general.hardwareAcceleration} label={t("settings.hardwareAcceleration")} />
@@ -371,7 +593,7 @@ function SettingsPage(props: SettingsPageProps) {
             />
             <SwitchSetting name="minimizeToTray" checked={current().general.minimizeToTray} label={t("settings.minimizeToTray")} hint={t("settings.minimizeToTrayHint")} />
             <SettingRow label={t("settings.browserDataTitle")} hint={t("settings.browserDataHint")} control={
-              <button type="button" class="button button--primary" onClick={requestBrowserImport}>
+              <button type="button" class="yt-button yt-button--filled" onClick={requestBrowserImport}>
                 {t("settings.importBrowserData")}
               </button>
             } />
@@ -389,8 +611,10 @@ export async function renderSettings(host: HTMLElement, initialTab: string = "ap
     api.themeList(),
     api.appVersion(),
   ]);
-  const tab = SETTINGS_TABS.includes(initialTab as SettingsTab)
-    ? initialTab as SettingsTab
+  const preferredTab = requestedTab ?? initialTab;
+  requestedTab = null;
+  const tab = SETTINGS_TABS.includes(preferredTab as SettingsTab)
+    ? preferredTab as SettingsTab
     : "appearance";
   render(() => <SettingsPage initial={initial} themes={themes} version={version} initialTab={tab} />, host);
 }

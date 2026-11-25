@@ -28,6 +28,10 @@ pub fn build(
     tokens.insert("--color-danger".into(), palette.danger.into());
     tokens.insert("--color-success".into(), palette.success.into());
     tokens.insert("--color-warning".into(), palette.warning.into());
+    tokens.insert(
+        "--color-isolated".into(),
+        if effective_dark { "#3ea6ff" } else { "#0b57d0" }.into(),
+    );
 
     tokens.insert("--color-accent".into(), settings.accent.clone());
     tokens.insert(

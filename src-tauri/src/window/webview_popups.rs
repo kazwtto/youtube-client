@@ -243,6 +243,7 @@ struct Watch {
     owner: Handle,
     hook: Handle,
     app_id: String,
+    ref_count: usize,
 }
 
 impl Drop for Watch {
@@ -274,7 +275,8 @@ pub fn watch(owner: &Window, webview: &Webview) {
 
         WATCHES.with(|watches| {
             let mut watches = watches.borrow_mut();
-            if watches.contains_key(&process) {
+            if let Some(existing) = watches.get_mut(&process) {
+                existing.ref_count = existing.ref_count.saturating_add(1);
                 return;
             }
             let hook = unsafe {
@@ -295,8 +297,36 @@ pub fn watch(owner: &Window, webview: &Webview) {
                         owner: owner as Handle,
                         hook,
                         app_id: app_id.clone(),
+                        ref_count: 1,
                     },
                 );
+            }
+        });
+    });
+}
+
+pub fn unwatch_webview(webview: &Webview) {
+    let _ = webview.with_webview(move |platform| {
+        let mut process = 0;
+        unsafe {
+            let Ok(core) = platform.controller().CoreWebView2() else {
+                return;
+            };
+            if core.BrowserProcessId(&mut process).is_err() || process == 0 {
+                return;
+            }
+        }
+
+        WATCHES.with(|watches| {
+            let mut watches = watches.borrow_mut();
+            let remove = if let Some(existing) = watches.get_mut(&process) {
+                existing.ref_count = existing.ref_count.saturating_sub(1);
+                existing.ref_count == 0
+            } else {
+                false
+            };
+            if remove {
+                watches.remove(&process);
             }
         });
     });

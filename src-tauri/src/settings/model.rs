@@ -20,6 +20,8 @@ pub struct AppSettings {
     pub history: HistorySettings,
     pub extensions: ExtensionSettings,
     pub general: GeneralSettings,
+    pub tabs: TabSettings,
+    pub updates: UpdateSettings,
 }
 
 const CURRENT_SETTINGS_VERSION: u16 = 1;
@@ -39,6 +41,8 @@ impl Default for AppSettings {
             history: HistorySettings::default(),
             extensions: ExtensionSettings::default(),
             general: GeneralSettings::default(),
+            tabs: TabSettings::default(),
+            updates: UpdateSettings::default(),
         }
     }
 }
@@ -170,6 +174,59 @@ impl Default for GeneralSettings {
             integrate_masthead: false,
             open_last_page: true,
             last_youtube_url: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TabLayout {
+    #[default]
+    Command,
+    Bottom,
+    Floating,
+    Sidebar,
+    SidebarHover,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TabSettings {
+    pub enabled: bool,
+    pub layout: TabLayout,
+    pub sidebar_expanded: bool,
+    pub sidebar_width: u32,
+    pub auto_sleep_minutes: u32,
+    pub confirm_close_with_multiple: bool,
+    pub default_isolated: bool,
+}
+
+impl Default for TabSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            layout: TabLayout::Command,
+            sidebar_expanded: true,
+            sidebar_width: 220,
+            auto_sleep_minutes: 30,
+            confirm_close_with_multiple: false,
+            default_isolated: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UpdateSettings {
+    pub auto_check: bool,
+    pub include_prerelease: bool,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            auto_check: true,
+            include_prerelease: true,
         }
     }
 }

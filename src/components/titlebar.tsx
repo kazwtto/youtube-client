@@ -8,7 +8,8 @@ import type { AnimationPlaybackControlsWithThen } from "motion";
 import type { RouteId } from "../app/router";
 import { APP_SECTIONS, type AppSection } from "../app/navigation";
 import { t, type TranslationKey } from "../i18n";
-import { api, type AuthSnapshot, type RpcStatus, type TitlebarStyle, type YoutubeNavState, type YoutubeTitlebarIcons } from "../lib/api";
+import { api, type AppSettings, type AuthSnapshot, type RpcStatus, type TabSessionSnapshot, type TitlebarStyle, type YoutubeNavState, type YoutubeTitlebarIcons } from "../lib/api";
+import { setUiElevationSource } from "../lib/elevation";
 import { animateFadeScaleIn, animateMotion, isMotionEnabled, playElementMotion, stopElementMotion } from "../lib/motion";
 import { FloatingMenu } from "./floating-menu";
 import { Icon, type IconName, type YoutubeIconName } from "./icons";
@@ -114,6 +115,8 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
   const [canGoBack, setCanGoBack] = createSignal(false);
   const [canGoForward, setCanGoForward] = createSignal(false);
   const [voiceActive, setVoiceActive] = createSignal(false);
+  const [commandTabsVisible, setCommandTabsVisible] = createSignal(true);
+  const [tabCount, setTabCount] = createSignal(1);
   const [barWidth, setBarWidth] = createSignal(
     typeof window !== "undefined" ? props.bar.clientWidth || window.innerWidth : 1280,
   );
@@ -189,7 +192,7 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
         elevationDropTimer = undefined;
       }
       wasMenuOpen = menuOpen;
-      void api.setUiElevation(true).catch(() => undefined);
+      setUiElevationSource("titlebar", true);
       return;
     }
     const shouldDelayDrop = wasMenuOpen && isMotionEnabled();
@@ -199,11 +202,11 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
       elevationDropTimer = window.setTimeout(() => {
         elevationDropTimer = undefined;
         if (activeMenu() === null && suggestions().length === 0) {
-          void api.setUiElevation(false).catch(() => undefined);
+          setUiElevationSource("titlebar", false);
         }
       }, 150);
     } else {
-      void api.setUiElevation(false).catch(() => undefined);
+      setUiElevationSource("titlebar", false);
     }
   });
 
@@ -512,8 +515,13 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
     setQuery(value);
     closeSuggestions();
     if (compactSearch()) closeExpandedSearch();
-    props.actions.onNavigate("home");
-    void api.ytNavigate(`search:${encodeURIComponent(value)}`);
+    const shouldReturnHome = state.active() !== "home";
+    void api
+      .ytNavigate(`search:${encodeURIComponent(value)}`)
+      .catch(() => undefined)
+      .finally(() => {
+        if (shouldReturnHome) props.actions.onNavigate("home");
+      });
   };
 
   const updateSearchDropdown = async (): Promise<void> => {
@@ -598,8 +606,11 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
       case "back":
       case "forward":
       case "reload":
+        await api.ytNavigate(action);
+        break;
       case "guide":
       case "voice":
+        if (state.active() !== "home") return;
         await api.ytNavigate(action);
         break;
       case "toggle-auth-menu":
@@ -701,6 +712,29 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
         setVoiceActive(Boolean(event.payload));
       }),
     );
+    void api
+      .settingsGet()
+      .then((s) => {
+        setCommandTabsVisible((s.tabs?.enabled ?? true) && (s.tabs?.layout ?? "command") === "command");
+      })
+      .catch(() => undefined);
+    void api
+      .tabsSnapshot()
+      .then((snap) => setTabCount(snap.tabs.length))
+      .catch(() => undefined);
+    register(
+      listen<AppSettings>("settings://changed", (event) => {
+        const tabs = event.payload?.tabs;
+        if (tabs) {
+          setCommandTabsVisible((tabs.enabled ?? true) && tabs.layout === "command");
+        }
+      }),
+    );
+    register(
+      listen<TabSessionSnapshot>("tabs://updated", (event) => {
+        if (event.payload?.tabs) setTabCount(event.payload.tabs.length);
+      }),
+    );
 
     onCleanup(() => {
       disposed = true;
@@ -781,7 +815,7 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
 
   return (
     <>
-      <button type="button" class="titlebar__button titlebar__button--guide" data-action="guide" title={t("titlebar.guide")} aria-label={t("titlebar.guide")} hidden={!state.integrated()} onClick={() => runAction("guide")}>
+      <button type="button" class="titlebar__button titlebar__button--guide" data-action="guide" title={t("titlebar.guide")} aria-label={t("titlebar.guide")} hidden={!state.integrated()} disabled={state.active() !== "home"} onClick={() => runAction("guide")}>
         <Icon name="guide" source="youtube" rawSvg={state.icons().guide} size={20} style={{ pointerEvents: "none", display: "inherit" }} />
       </button>
       <div class="titlebar__brand" style={{ display: "none" }} data-tauri-drag-region>
@@ -791,6 +825,19 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
         {navigationButton("back", "titlebar.back", "back", "", () => !canGoBack())}
         {navigationButton("forward", "titlebar.forward", "forward", "", () => !canGoForward())}
         {navigationButton("reload", "titlebar.reload", "reload")}
+        <button
+          type="button"
+          class="titlebar__tab-pill"
+          classList={{ "is-visible": commandTabsVisible() }}
+          aria-hidden={!commandTabsVisible()}
+          tabIndex={commandTabsVisible() ? 0 : -1}
+          title={`${t("tabs.actionMenuTitle")} (${t("tabs.actionMenuOpenHint")})`}
+          aria-label={t("tabs.actionMenuTitle")}
+          onClick={() => document.dispatchEvent(new CustomEvent("app:open-tab-action-menu"))}
+        >
+          <Icon name="columns" size={14} />
+          <span>{tabCount()}</span>
+        </button>
       </div>
       <div class="titlebar__spacer titlebar__spacer--left" data-tauri-drag-region />
       <div
@@ -919,6 +966,7 @@ function TitlebarContent(props: { actions: TitlebarActions; bar: HTMLElement; st
           title={t("titlebar.voiceSearch")}
           aria-label={t("titlebar.voiceSearch")}
           aria-pressed={voiceActive()}
+          disabled={state.active() !== "home"}
           onClick={() => runAction("voice")}
         >
           <Icon name="voice" size={20} style={{ pointerEvents: "none", display: "inherit" }} />

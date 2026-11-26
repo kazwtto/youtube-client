@@ -10,7 +10,7 @@ import { api, type HistoryEntry, type TabState } from "../lib/api";
 
 type DateFilter = "all" | "today" | "yesterday" | "week";
 type ViewMode = "list" | "grid" | "columns";
-const HISTORY_PAGE_SIZE = 300;
+const HISTORY_PAGE_SIZE = 60;
 
 function readViewMode(): ViewMode {
   try {
@@ -381,14 +381,33 @@ function HistoryPage(props: { host: HTMLElement }) {
       trigger?.focus();
     };
     const syncSessionAndLoad = async (): Promise<void> => {
-      try {
-        const snap = await api.tabsSnapshot();
+      const search = query().trim();
+      const [snapResult, listResult] = await Promise.allSettled([
+        api.tabsSnapshot(),
+        api.historyList({ search, limit: HISTORY_PAGE_SIZE, offset: 0 }),
+      ]);
+
+      let nextProfile = "default";
+      if (snapResult.status === "fulfilled") {
+        const snap = snapResult.value;
         setIsolatedTabs(snap.tabs.filter((item) => item.isolated));
         const activeTab = snap.tabs.find((item) => item.id === snap.activeTabId);
-        setProfileId(activeTab?.isolated ? activeTab.id : "default");
-      } catch {
-        setProfileId("default");
+        nextProfile = activeTab?.isolated ? activeTab.id : "default";
       }
+      setProfileId(nextProfile);
+
+      if (listResult.status === "fulfilled") {
+        const currentRequest = ++request;
+        const next = listResult.value;
+        if (currentRequest === request) {
+          setEntries(reconcile(next, { key: "id" }));
+          loadedCount = next.length;
+          setHasMore(next.length === HISTORY_PAGE_SIZE);
+          setLoadingMore(false);
+        }
+        return;
+      }
+
       await load();
     };
     activeHistoryRefresh = syncSessionAndLoad;

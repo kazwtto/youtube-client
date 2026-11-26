@@ -1,6 +1,7 @@
 use std::path::Path;
+use std::time::Duration;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 
 use crate::core::error::{AppError, AppResult};
@@ -20,7 +21,10 @@ impl HistoryRepository {
         let options = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(true)
-            .foreign_keys(true);
+            .foreign_keys(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(Duration::from_secs(5));
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
@@ -39,7 +43,9 @@ impl HistoryRepository {
     pub async fn list(&self, query: HistoryQuery) -> AppResult<Vec<HistoryEntry>> {
         let limit = query.limit.clamp(1, 500);
         let offset = query.offset.max(0);
-        let search = format!("%{}%", query.search.trim());
+        let trimmed_search = query.search.trim();
+        let has_search = !trimmed_search.is_empty();
+        let search = format!("%{trimmed_search}%");
         let profile_filter = query
             .profile_id
             .as_deref()
@@ -47,37 +53,78 @@ impl HistoryRepository {
             .unwrap_or("default");
         let all_profiles = query.profile_id.as_deref() == Some("all");
 
-        let rows = sqlx::query_as::<_, HistoryEntry>(
-            r#"
-            SELECT v.id AS id,
-                   v.title AS title,
-                   v.channel AS channel,
-                   v.duration_secs AS duration_secs,
-                   v.thumbnail_path AS thumbnail_path,
-                   MAX(w.watched_at) AS last_watched_at,
-                   COUNT(w.id) AS watch_count,
-                   (SELECT latest.position_secs FROM watch_events latest
-                    WHERE latest.video_id = v.id AND (?4 OR latest.profile_id = ?5)
-                    ORDER BY latest.watched_at DESC, latest.id DESC LIMIT 1) AS position_secs,
-                   (SELECT latest.watched_secs FROM watch_events latest
-                    WHERE latest.video_id = v.id AND (?4 OR latest.profile_id = ?5)
-                    ORDER BY latest.watched_at DESC, latest.id DESC LIMIT 1) AS watched_secs
-            FROM videos v
-            JOIN watch_events w ON w.video_id = v.id
-            WHERE (?1 = '%%' OR v.title LIKE ?1 OR v.channel LIKE ?1)
-              AND (?4 OR w.profile_id = ?5)
-            GROUP BY v.id, v.title, v.channel, v.duration_secs, v.thumbnail_path
-            ORDER BY last_watched_at DESC
-            LIMIT ?2 OFFSET ?3
-            "#,
-        )
-        .bind(&search)
-        .bind(limit)
-        .bind(offset)
-        .bind(all_profiles)
-        .bind(profile_filter)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = if !has_search && !all_profiles {
+            sqlx::query_as::<_, HistoryEntry>(
+                r#"
+                WITH ranked AS (
+                    SELECT w.video_id,
+                           w.watched_at,
+                           w.position_secs,
+                           w.watched_secs,
+                           ROW_NUMBER() OVER (PARTITION BY w.video_id ORDER BY w.watched_at DESC, w.id DESC) AS rn,
+                           COUNT(*) OVER (PARTITION BY w.video_id) AS watch_count
+                    FROM watch_events w
+                    WHERE w.profile_id = ?1
+                )
+                SELECT v.id AS id,
+                       v.title AS title,
+                       v.channel AS channel,
+                       v.duration_secs AS duration_secs,
+                       v.thumbnail_path AS thumbnail_path,
+                       r.watched_at AS last_watched_at,
+                       r.watch_count AS watch_count,
+                       r.position_secs AS position_secs,
+                       r.watched_secs AS watched_secs
+                FROM ranked r
+                JOIN videos v ON v.id = r.video_id
+                WHERE r.rn = 1
+                ORDER BY r.watched_at DESC
+                LIMIT ?2 OFFSET ?3
+                "#,
+            )
+            .bind(profile_filter)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, HistoryEntry>(
+                r#"
+                WITH ranked AS (
+                    SELECT w.video_id,
+                           w.watched_at,
+                           w.position_secs,
+                           w.watched_secs,
+                           ROW_NUMBER() OVER (PARTITION BY w.video_id ORDER BY w.watched_at DESC, w.id DESC) AS rn,
+                           COUNT(*) OVER (PARTITION BY w.video_id) AS watch_count
+                    FROM watch_events w
+                    WHERE (?4 OR w.profile_id = ?5)
+                )
+                SELECT v.id AS id,
+                       v.title AS title,
+                       v.channel AS channel,
+                       v.duration_secs AS duration_secs,
+                       v.thumbnail_path AS thumbnail_path,
+                       r.watched_at AS last_watched_at,
+                       r.watch_count AS watch_count,
+                       r.position_secs AS position_secs,
+                       r.watched_secs AS watched_secs
+                FROM ranked r
+                JOIN videos v ON v.id = r.video_id
+                WHERE r.rn = 1
+                  AND (?1 = '%%' OR v.title LIKE ?1 OR v.channel LIKE ?1)
+                ORDER BY r.watched_at DESC
+                LIMIT ?2 OFFSET ?3
+                "#,
+            )
+            .bind(&search)
+            .bind(limit)
+            .bind(offset)
+            .bind(all_profiles)
+            .bind(profile_filter)
+            .fetch_all(&self.pool)
+            .await?
+        };
 
         Ok(rows)
     }

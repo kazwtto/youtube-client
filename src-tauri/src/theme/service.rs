@@ -69,9 +69,9 @@ impl ThemeService {
             let resizable =
                 !window.is_maximized().unwrap_or(false) && !window.is_fullscreen().unwrap_or(false);
 
-            let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
             match resolved.backdrop {
                 Backdrop::Mica => {
+                    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
                     let _ = clear_acrylic(window);
                     if apply_mica(window, Some(dark)).is_err() {
                         let _ = clear_mica(window);
@@ -79,6 +79,7 @@ impl ThemeService {
                     }
                 }
                 Backdrop::Acrylic => {
+                    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
                     let _ = clear_mica(window);
                     if apply_acrylic(window, None).is_err() {
                         let _ = clear_acrylic(window);
@@ -108,26 +109,50 @@ impl ThemeService {
         Ok(())
     }
 
-    /// Pushes the resolved theme into the YouTube webview.
-    ///
-    /// The webview defines `window.__ytdesktopApplyTheme` in an initialization
-    /// script, so the same mapping runs on load and on every update.
+    /// Pushes the resolved theme into all live YouTube tab webviews and keeps
+    /// their native background color opaque in Solid mode so redraws never flash transparent.
     pub fn apply_to_youtube(window: &tauri::Window, resolved: &ResolvedTheme) -> AppResult<()> {
-        let Some(webview) = window.get_webview("yt") else {
-            return Ok(());
-        };
-
         let payload = serde_json::to_string(resolved)?;
         let script =
             format!("window.__ytdesktopApplyTheme && window.__ytdesktopApplyTheme({payload});");
 
-        webview.eval(&script).map_err(AppError::from)?;
+        let labels: Vec<String> = window
+            .app_handle()
+            .try_state::<crate::core::state::AppState>()
+            .and_then(|state| {
+                state.tabs.lock().ok().map(|manager| {
+                    manager
+                        .snapshot()
+                        .tabs
+                        .into_iter()
+                        .filter(|tab| !tab.sleeping)
+                        .map(|tab| tab.webview_label)
+                        .collect()
+                })
+            })
+            .unwrap_or_else(|| vec!["yt".to_string()]);
+
+        #[cfg(windows)]
+        let native_bg = match resolved.backdrop {
+            Backdrop::Solid => fallback_background(resolved),
+            Backdrop::Mica | Backdrop::Acrylic => tauri::window::Color(0, 0, 0, 0),
+        };
+
+        for label in labels {
+            if let Some(webview) = window.get_webview(&label) {
+                #[cfg(windows)]
+                {
+                    let _ = webview.set_background_color(Some(native_bg));
+                }
+                let _ = webview.eval(&script);
+            }
+        }
         Ok(())
     }
 }
 
 #[cfg(windows)]
-fn fallback_background(resolved: &ResolvedTheme) -> tauri::window::Color {
+pub(crate) fn fallback_background(resolved: &ResolvedTheme) -> tauri::window::Color {
     let value = resolved
         .tokens
         .get("--color-bg-solid")

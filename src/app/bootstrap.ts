@@ -6,12 +6,12 @@ import { initTheme } from "../theme/provider";
 import { createShell } from "./shell";
 
 export async function bootstrap(): Promise<void> {
-  await initI18n();
+  await initI18n().catch(() => undefined);
 
   const root = document.querySelector<HTMLElement>("#app");
   if (!root) throw new Error(t("bootstrap.missingRoot"));
 
-  await initTheme();
+  await initTheme().catch(() => undefined);
 
   if (new URLSearchParams(window.location.search).get("dock") === "1") {
     document.documentElement.dataset.dock = "true";
@@ -20,5 +20,5 @@ export async function bootstrap(): Promise<void> {
   }
 
   createShell(root);
-  await getCurrentWindow().show();
+  await getCurrentWindow().show().catch(() => undefined);
 }

@@ -73,7 +73,18 @@ pub fn run() {
                 watch_sleeping_tabs(sleep_handle, sleep_window).await;
             });
             tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+                // Wait for the active YouTube surface to paint (up to 10s) so
+                // extension reconciliation never competes with WebView2 cold start.
+                for _ in 0..40 {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    let ready = handle
+                        .try_state::<core::state::AppState>()
+                        .map(|s| s.youtube_ready.load(Ordering::SeqCst))
+                        .unwrap_or(false);
+                    if ready {
+                        break;
+                    }
+                }
                 sync_extensions(&handle, &youtube_window, &webview_data_dir).await;
                 watch_extensions_folder(handle, youtube_window, webview_data_dir).await;
             });
@@ -274,9 +285,16 @@ async fn sync_extensions(
         return;
     };
 
-    let runtime_changed = extensions::apply_runtime(window, &list);
     let visible = state.youtube_visible.load(Ordering::SeqCst);
     drop(state);
+
+    let win = window.clone();
+    let runtime_changed = tauri::async_runtime::spawn_blocking(move || {
+        extensions::apply_runtime(&win, &list)
+    })
+    .await
+    .unwrap_or(false);
+
     if runtime_changed {
         let _ = window::layout::reload_youtube(window, webview_data_dir, visible).await;
     }

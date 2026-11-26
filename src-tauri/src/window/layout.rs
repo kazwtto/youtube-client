@@ -24,8 +24,12 @@ pub const YOUTUBE_WEBVIEW_LABEL: &str = "yt";
 /// in CSS.
 pub const TITLEBAR_HEIGHT: f64 = 40.0;
 
-const INITIAL_WIDTH: f64 = 1280.0;
-const INITIAL_HEIGHT: f64 = 800.0;
+pub use super::auth_modal::{
+    build_auth_web_webview, ensure_auth_modal_window, sync_auth_modal_position,
+};
+
+pub(crate) const INITIAL_WIDTH: f64 = 1280.0;
+pub(crate) const INITIAL_HEIGHT: f64 = 800.0;
 const YOUTUBE_URL: &str = "https://www.youtube.com";
 
 /// Creates the main window and the two webviews:
@@ -80,169 +84,9 @@ pub fn setup(
     let _ = sync_tab_dock_webview(&window, webview_data_dir);
     layout_webviews(&window)?;
     observe_window(&window);
-    setup_auth_modal_window(app, webview_data_dir)?;
     crate::window::tray::setup(app)?;
 
     Ok(window)
-}
-
-pub fn build_auth_web_webview(modal: &Window, data_dir: &Path) -> AppResult<()> {
-    let _ = std::fs::create_dir_all(data_dir);
-    let url: tauri::Url = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com"
-        .parse()
-        .expect("invalid Google login URL");
-
-    let auth_web_builder = WebviewBuilder::new(AUTH_WEB_WEBVIEW_LABEL, WebviewUrl::External(url))
-        .data_directory(data_dir.to_path_buf())
-        .browser_extensions_enabled(true)
-        .background_color(Color(255, 255, 255, 255))
-        .on_page_load(move |webview, payload| {
-            if let tauri::webview::PageLoadEvent::Finished = payload.event() {
-                let url_str = payload.url().as_str();
-                if url_str.starts_with("https://www.youtube.com") && !url_str.contains("ServiceLogin") {
-                    let app = webview.app_handle().clone();
-                    if let Some(modal) = app.get_window(AUTH_MODAL_WINDOW_LABEL) {
-                        let _ = modal.hide();
-                    }
-                    if let Some(main) = app.get_window(MAIN_WINDOW_LABEL) {
-                        if let Some(yt) = active_youtube_webview(&main) {
-                            let _ = yt.reload();
-                        }
-                    }
-                }
-            }
-        });
-
-    let card_w = 640.0;
-    let card_h = 520.0;
-    let card_x = (INITIAL_WIDTH - card_w) / 2.0;
-    let card_y = (INITIAL_HEIGHT - card_h) / 2.0;
-    let header_h = 44.0;
-
-    modal.add_child(
-        auth_web_builder,
-        LogicalPosition::new(card_x, card_y + header_h),
-        LogicalSize::new(card_w, card_h - header_h),
-    )?;
-    Ok(())
-}
-
-fn setup_auth_modal_window(app: &mut App, webview_data_dir: &Path) -> AppResult<()> {
-    let window = tauri::window::WindowBuilder::new(app, AUTH_MODAL_WINDOW_LABEL)
-        .title("Login")
-        .inner_size(INITIAL_WIDTH, INITIAL_HEIGHT)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(true)
-        .visible(false)
-        .shadow(false)
-        .background_color(Color(0, 0, 0, 0))
-        .build()?;
-
-    let ui_builder = WebviewBuilder::new(
-        AUTH_UI_WEBVIEW_LABEL,
-        tauri::WebviewUrl::App("auth-modal.html".into()),
-    )
-    .data_directory(webview_data_dir.join("ui"))
-    .background_color(Color(0, 0, 0, 0));
-
-    window.add_child(
-        ui_builder,
-        LogicalPosition::new(0.0, 0.0),
-        LogicalSize::new(INITIAL_WIDTH, INITIAL_HEIGHT),
-    )?;
-
-    let default_dir = webview_data_dir.join("profiles").join("default");
-    build_auth_web_webview(&window, &default_dir)?;
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::ffi::c_void;
-
-        #[link(name = "dwmapi")]
-        extern "system" {
-            fn DwmSetWindowAttribute(
-                hwnd: *mut c_void,
-                dwAttribute: u32,
-                pvAttribute: *const c_void,
-                cbAttribute: u32,
-            ) -> i32;
-        }
-
-        if let Ok(hwnd) = window.hwnd() {
-            unsafe {
-                let corner_pref: u32 = 1;
-                let _ = DwmSetWindowAttribute(
-                    hwnd.0 as *mut c_void,
-                    33,
-                    &corner_pref as *const _ as *const c_void,
-                    std::mem::size_of::<u32>() as u32,
-                );
-
-                let border_color: u32 = 0xFFFFFFFE;
-                let _ = DwmSetWindowAttribute(
-                    hwnd.0 as *mut c_void,
-                    34,
-                    &border_color as *const _ as *const c_void,
-                    std::mem::size_of::<u32>() as u32,
-                );
-            }
-        }
-    }
-
-    Ok(())
-}
-
-pub fn sync_auth_modal_position(main: &Window) {
-    if let Some(modal) = main.app_handle().get_window(AUTH_MODAL_WINDOW_LABEL) {
-        if modal.is_visible().unwrap_or(false) {
-            let is_max = main.is_maximized().unwrap_or(false);
-            if is_max {
-                let _ = modal.maximize();
-            } else {
-                let _ = modal.unmaximize();
-                if let Ok(pos) = main.inner_position() {
-                    let _ = modal.set_position(pos);
-                }
-                if let Ok(size) = main.inner_size() {
-                    let _ = modal.set_size(size);
-                }
-            }
-
-            if let (Ok(scale), Ok(size)) = (modal.scale_factor(), modal.inner_size()) {
-                let scale = scale.max(0.0001);
-                let width = size.width as f64 / scale;
-                let height = size.height as f64 / scale;
-                let card_w = (width * 0.50).max(440.0).min(640.0).round();
-                let card_h = (height * 0.60).max(480.0).min(700.0).round();
-                let card_x = ((width - card_w) / 2.0).round();
-                let card_y = ((height - card_h) / 2.0).round();
-                let header_h = 44.0;
-
-                if let Some(ui) = modal.get_webview(AUTH_UI_WEBVIEW_LABEL) {
-                    let _ = ui.set_position(tauri::LogicalPosition::new(0.0, 0.0));
-                    let _ = ui.set_size(tauri::LogicalSize::new(width, height));
-                }
-                if let Some(web) = modal.get_webview(AUTH_WEB_WEBVIEW_LABEL) {
-                    let _ =
-                        web.set_position(tauri::LogicalPosition::new(card_x, card_y + header_h));
-                    let _ = web.set_size(tauri::LogicalSize::new(card_w, card_h - header_h));
-                }
-                let _ = main.app_handle().emit(
-                    "auth://modal-layout",
-                    serde_json::json!({
-                        "cardX": card_x,
-                        "cardY": card_y,
-                        "cardW": card_w,
-                        "cardH": card_h,
-                        "headerH": header_h
-                    }),
-                );
-            }
-        }
-    }
 }
 
 pub fn active_youtube_label(app: &tauri::AppHandle) -> String {
@@ -621,17 +465,24 @@ fn create_youtube_webview_with_dir(
     let app_handle = window.app_handle().clone();
     let webview_label = label.to_string();
 
+    #[cfg(windows)]
+    let webview_bg = match theme {
+        Some(resolved) if resolved.backdrop == crate::theme::model::Backdrop::Solid => {
+            crate::theme::service::fallback_background(resolved)
+        }
+        _ => Color(0, 0, 0, 0),
+    };
+    #[cfg(not(windows))]
+    let webview_bg = Color(0, 0, 0, 0);
+
     let make = |with_extensions: bool| {
         let mut builder =
             WebviewBuilder::new(&webview_label, WebviewUrl::External(url.clone()))
                 .data_directory(data_dir.to_path_buf())
-                // Transparent so the native Mica/Acrylic backdrop of the window
-                // shows through the site. `theme.js` keeps the page opaque when
-                // the selected backdrop is Solid. The transparent background is
-                // set through `background_color`, exactly like the launcher
-                // webview: WebView2 ignores it when `transparent(true)` is also
-                // set, and the site ended up painting an opaque surface.
-                .background_color(Color(0, 0, 0, 0))
+                // Opaque in Solid backdrop so navigation/compositor redraws never
+                // expose a transparent hole; transparent in Mica/Acrylic so the
+                // native material shows through.
+                .background_color(webview_bg)
                 .on_permission_request({
                     let app = app_handle.clone();
                     move |webview, kind| {
@@ -1018,56 +869,81 @@ fn observe_window(window: &Window) {
     });
 }
 
-/// Follows the mini player move/resize and writes its geometry when it closes.
+#[derive(Default, Clone, Copy)]
+struct PendingPipGeometry {
+    x: Option<f64>,
+    y: Option<f64>,
+    width: Option<f64>,
+    height: Option<f64>,
+}
+
+fn pending_pip_geometry() -> &'static std::sync::Mutex<PendingPipGeometry> {
+    static PENDING: std::sync::OnceLock<std::sync::Mutex<PendingPipGeometry>> =
+        std::sync::OnceLock::new();
+    PENDING.get_or_init(|| std::sync::Mutex::new(PendingPipGeometry::default()))
+}
+
+fn flush_pending_pip_geometry(app: &tauri::AppHandle, persist: bool) {
+    let pending = {
+        let Ok(mut guard) = pending_pip_geometry().lock() else {
+            return;
+        };
+        let snapshot = *guard;
+        *guard = PendingPipGeometry::default();
+        snapshot
+    };
+    if pending.x.is_none() && pending.width.is_none() && !persist {
+        return;
+    }
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let Ok(mut store) = state.settings.write() else {
+        return;
+    };
+    if pending.x.is_some() || pending.width.is_some() {
+        let current = store.snapshot().pip;
+        let width = pending.width.unwrap_or(current.width);
+        let height = pending.height.unwrap_or(current.height);
+        store.set_pip_geometry(pending.x, pending.y, width, height);
+    }
+    if persist {
+        let next = store.snapshot();
+        let _ = store.replace(next);
+    }
+}
+
+/// Follows the mini player move/resize and buffers its geometry without taking
+/// the global settings write lock on every dragged pixel.
 fn remember_pip_geometry(app: &tauri::AppHandle, pip: &tauri::WebviewWindow) {
     let handle = app.clone();
     pip.on_window_event(move |event| {
         if crate::commands::window::PIP_DRAGGING.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        let Some(state) = handle.try_state::<AppState>() else {
-            return;
-        };
-
-        let Ok(mut store) = state.settings.write() else {
-            return;
-        };
-
-        let mut remember = false;
-
         match event {
             WindowEvent::Moved(position) => {
                 if let Ok(scale) = pip_scale(&handle) {
-                    let (width, height) = (store.snapshot().pip.width, store.snapshot().pip.height);
-                    store.set_pip_geometry(
-                        Some(position.x as f64 / scale),
-                        Some(position.y as f64 / scale),
-                        width,
-                        height,
-                    );
-                    remember = true;
+                    if let Ok(mut guard) = pending_pip_geometry().lock() {
+                        guard.x = Some(position.x as f64 / scale);
+                        guard.y = Some(position.y as f64 / scale);
+                    }
+                    schedule_pip_save(&handle);
                 }
             }
             WindowEvent::Resized(size) => {
                 if let Ok(scale) = pip_scale(&handle) {
-                    let width = size.width as f64 / scale;
-                    let height = size.height as f64 / scale;
-
-                    store.set_pip_geometry(None, None, width, height);
-                    remember = true;
+                    if let Ok(mut guard) = pending_pip_geometry().lock() {
+                        guard.width = Some(size.width as f64 / scale);
+                        guard.height = Some(size.height as f64 / scale);
+                    }
+                    schedule_pip_save(&handle);
                 }
             }
             WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed => {
-                let next = store.snapshot();
-                let _ = store.replace(next);
+                flush_pending_pip_geometry(&handle, true);
             }
             _ => {}
-        }
-
-        drop(store);
-
-        if remember {
-            schedule_pip_save(&handle);
         }
     });
 }
@@ -1595,16 +1471,7 @@ fn schedule_pip_save(app: &tauri::AppHandle) {
             return;
         }
 
-        let Some(state) = handle.try_state::<AppState>() else {
-            return;
-        };
-
-        let Ok(mut store) = state.settings.write() else {
-            return;
-        };
-
-        let next = store.snapshot();
-        let _ = store.replace(next);
+        flush_pending_pip_geometry(&handle, true);
     }));
 }
 

@@ -200,18 +200,18 @@ mod win32 {
     #[link(name = "user32")]
     extern "system" {
         pub fn ReleaseCapture() -> i32;
-        pub fn SendMessageW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
+        pub fn PostMessageW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> i32;
     }
 
-    pub const WM_SYSCOMMAND: u32 = 0x0112;
-    pub const SC_DRAGMOVE: usize = 0xF012;
+    pub const WM_NCLBUTTONDOWN: u32 = 0x00A1;
+    pub const HTCAPTION: usize = 2;
 }
 
 pub static PIP_DRAGGING: AtomicBool = AtomicBool::new(false);
 static PIP_TARGET_X: AtomicI32 = AtomicI32::new(0);
 static PIP_TARGET_Y: AtomicI32 = AtomicI32::new(0);
 
-/// Marks the start of a mini player drag, initiating native OS dragging.
+/// Marks the start of a mini player drag, initiating non-blocking native OS dragging.
 #[tauri::command]
 pub fn pip_drag_start(app: tauri::AppHandle) -> AppResult<()> {
     if let Some(pip) = app.get_webview_window(crate::window::layout::PIP_WINDOW_LABEL) {
@@ -219,38 +219,14 @@ pub fn pip_drag_start(app: tauri::AppHandle) -> AppResult<()> {
         {
             if let Ok(hwnd) = pip.hwnd() {
                 let hwnd_raw = hwnd.0 as isize;
-                let pip_handle = pip.clone();
-                let app_handle = app.clone();
-                let _ = app.run_on_main_thread(move || {
-                    PIP_DRAGGING.store(true, Ordering::SeqCst);
-                    unsafe {
-                        win32::ReleaseCapture();
-                        win32::SendMessageW(
-                            hwnd_raw as *mut std::ffi::c_void,
-                            win32::WM_SYSCOMMAND,
-                            win32::SC_DRAGMOVE,
-                            0,
-                        );
-                    }
-                    PIP_DRAGGING.store(false, Ordering::SeqCst);
-
-                    if let Ok(pos) = pip_handle.outer_position() {
-                        if let Ok(scale) = pip_handle.scale_factor() {
-                            use crate::core::state::AppState;
-                            if let Some(state) = app_handle.try_state::<AppState>() {
-                                if let Ok(mut store) = state.settings.write() {
-                                    let (width, height) =
-                                        (store.snapshot().pip.width, store.snapshot().pip.height);
-                                    store.set_pip_geometry(
-                                        Some(pos.x as f64 / scale.max(0.0001)),
-                                        Some(pos.y as f64 / scale.max(0.0001)),
-                                        width,
-                                        height,
-                                    );
-                                }
-                            }
-                        }
-                    }
+                let _ = app.run_on_main_thread(move || unsafe {
+                    win32::ReleaseCapture();
+                    win32::PostMessageW(
+                        hwnd_raw as *mut std::ffi::c_void,
+                        win32::WM_NCLBUTTONDOWN,
+                        win32::HTCAPTION,
+                        0,
+                    );
                 });
                 return Ok(());
             }
@@ -753,10 +729,6 @@ pub async fn open_auth_modal(app: tauri::AppHandle, state: State<'_, AppState>) 
     let main = app
         .get_window(crate::window::layout::MAIN_WINDOW_LABEL)
         .ok_or_else(|| AppError::State("main window not found".into()))?;
-    let modal = app
-        .get_window(crate::window::layout::AUTH_MODAL_WINDOW_LABEL)
-        .ok_or_else(|| AppError::State("auth modal window not found".into()))?;
-
     let target_dir = state
         .tabs
         .lock()
@@ -767,20 +739,36 @@ pub async fn open_auth_modal(app: tauri::AppHandle, state: State<'_, AppState>) 
         })
         .unwrap_or_else(|| state.paths.tab_webview_dir("tab-1", false));
 
-    let needs_rebuild = state
-        .auth_modal_dir
-        .lock()
-        .map(|guard| guard.as_ref() != Some(&target_dir))
-        .unwrap_or(false);
+    let existed = app
+        .get_window(crate::window::layout::AUTH_MODAL_WINDOW_LABEL)
+        .is_some();
+    let modal = crate::window::layout::ensure_auth_modal_window(
+        &app,
+        &state.paths.webview_data_dir,
+        &target_dir,
+    )?;
 
-    if needs_rebuild {
-        if let Some(old_web) = modal.get_webview(crate::window::layout::AUTH_WEB_WEBVIEW_LABEL) {
-            let _ = old_web.close();
-            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-        }
-        crate::window::layout::build_auth_web_webview(&modal, &target_dir)?;
+    if !existed {
         if let Ok(mut guard) = state.auth_modal_dir.lock() {
-            *guard = Some(target_dir);
+            *guard = Some(target_dir.clone());
+        }
+    } else {
+        let needs_rebuild = state
+            .auth_modal_dir
+            .lock()
+            .map(|guard| guard.as_ref() != Some(&target_dir))
+            .unwrap_or(false);
+
+        if needs_rebuild {
+            if let Some(old_web) = modal.get_webview(crate::window::layout::AUTH_WEB_WEBVIEW_LABEL)
+            {
+                let _ = old_web.close();
+                tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+            }
+            crate::window::layout::build_auth_web_webview(&modal, &target_dir)?;
+            if let Ok(mut guard) = state.auth_modal_dir.lock() {
+                *guard = Some(target_dir);
+            }
         }
     }
 

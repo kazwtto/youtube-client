@@ -1,11 +1,14 @@
 {
   "name": "yt-desktop",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "YouTube desktop client written in Rust (Tauri v2).",
   "scripts": {
     "dev": "vite",
+    "dev:web": "vite",
+    "dev:app": "tauri dev",
+    "dev:app:no-watch": "tauri dev --no-watch",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",

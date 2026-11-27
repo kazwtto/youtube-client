@@ -9,30 +9,22 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU8, Ordering};
 use tauri::{Manager, Webview, Window};
 use windows::Win32::{
     Foundation::{HWND, POINT, PROPERTYKEY},
-    System::{
-        Com::StructuredStorage::PROPVARIANT,
-        Variant::{VARIANT, VT_LPWSTR},
-    },
-    UI::{
-        Accessibility::{AccessibleObjectFromPoint, IAccessible},
-        Shell::{
-            PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow},
-            SHStrDupW,
-        },
+    System::{Com::StructuredStorage::PROPVARIANT, Variant::VT_LPWSTR},
+    UI::Shell::{
+        PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow},
+        SHStrDupW,
     },
 };
-use windows_core::{GUID, HSTRING, Interface};
+use windows_core::{GUID, HSTRING};
 
 type Handle = *mut c_void;
 
-const EVENT_SYSTEM_CAPTURESTART: u32 = 0x0008;
+const EVENT_SYSTEM_MOVESIZEEND: u32 = 0x000B;
 const EVENT_SYSTEM_MINIMIZESTART: u32 = 0x0016;
 const EVENT_OBJECT_CREATE: u32 = 0x8000;
 const EVENT_OBJECT_SHOW: u32 = 0x8002;
 const EVENT_OBJECT_HIDE: u32 = 0x8003;
-const EVENT_OBJECT_LOCATIONCHANGE: u32 = 0x800B;
 const EVENT_OBJECT_NAMECHANGE: u32 = 0x800C;
-const EVENT_OBJECT_INVOKED: u32 = 0x8013;
 const GA_ROOT: u32 = 2;
 const GWL_EXSTYLE: i32 = -20;
 const WS_EX_TOOLWINDOW: isize = 0x80;
@@ -84,83 +76,6 @@ fn record_pip_bounds(hwnd: Handle) {
     let dpi = unsafe { GetDpiForWindow(hwnd) };
     if dpi > 0 {
         PIP_DPI.store(dpi as i32, Ordering::SeqCst);
-    }
-}
-
-fn classify_button_name(name: &str) -> Option<u8> {
-    if name.contains("minimizar")
-        || name.contains("minimize")
-        || name.contains("ocultar")
-        || name.contains("hide")
-        || name.contains("recolher")
-        || name.contains("collapse")
-        || name.contains("fechar")
-        || name.contains("close")
-    {
-        return Some(RETURN_SUPPRESS);
-    }
-    if name.contains("guia")
-        || name.contains("tab")
-        || name.contains("voltar")
-        || name.contains("back")
-        || name.contains("retornar")
-        || name.contains("return")
-        || name.contains("abrir")
-        || name.contains("open")
-    {
-        return Some(RETURN_ALLOW);
-    }
-    None
-}
-
-fn inspect_pip_button_under_cursor() {
-    let mut pt = POINT { x: 0, y: 0 };
-    if unsafe { GetCursorPos(&mut pt) } == 0 {
-        return;
-    }
-
-    let left = PIP_LEFT.load(Ordering::SeqCst);
-    let top = PIP_TOP.load(Ordering::SeqCst);
-    let right = PIP_RIGHT.load(Ordering::SeqCst);
-    let bottom = PIP_BOTTOM.load(Ordering::SeqCst);
-    if right <= left
-        || bottom <= top
-        || pt.x < left
-        || pt.x > right
-        || pt.y < top
-        || pt.y > bottom
-    {
-        return;
-    }
-
-    let mut acc: Option<IAccessible> = None;
-    let mut child = VARIANT::default();
-    if unsafe { AccessibleObjectFromPoint(pt, &mut acc, &mut child) }.is_ok() {
-        let mut current = acc;
-        let mut current_child = child;
-        for _ in 0..3 {
-            let Some(node) = current.take() else {
-                break;
-            };
-            if let Ok(name) = unsafe { node.get_accName(&current_child) } {
-                let lower = name.to_string().to_lowercase();
-                if let Some(mode) = classify_button_name(&lower) {
-                    NATIVE_PIP_RETURN_MODE.store(mode, Ordering::SeqCst);
-                    if mode == RETURN_SUPPRESS {
-                        NATIVE_PIP_MINIMIZED.store(true, Ordering::SeqCst);
-                    }
-                    return;
-                }
-            }
-            if let Ok(parent_disp) = unsafe { node.accParent() } {
-                if let Ok(parent_acc) = parent_disp.cast::<IAccessible>() {
-                    current = Some(parent_acc);
-                    current_child = VARIANT::from(0i32);
-                    continue;
-                }
-            }
-            break;
-        }
     }
 }
 
@@ -241,14 +156,16 @@ extern "system" {
 
 struct Watch {
     owner: Handle,
-    hook: Handle,
+    hooks: Vec<Handle>,
     app_id: String,
     ref_count: usize,
 }
 
 impl Drop for Watch {
     fn drop(&mut self) {
-        unsafe { UnhookWinEvent(self.hook) };
+        for &hook in &self.hooks {
+            unsafe { UnhookWinEvent(hook) };
+        }
     }
 }
 
@@ -279,23 +196,31 @@ pub fn watch(owner: &Window, webview: &Webview) {
                 existing.ref_count = existing.ref_count.saturating_add(1);
                 return;
             }
-            let hook = unsafe {
-                SetWinEventHook(
-                    EVENT_SYSTEM_CAPTURESTART,
-                    EVENT_OBJECT_INVOKED,
-                    null_mut(),
-                    on_window_event,
-                    process,
-                    0,
-                    0,
-                )
-            };
-            if !hook.is_null() {
+
+            // Register only targeted ranges so Chromium dragging/moving never
+            // triggers high-frequency WinEvent callbacks or cross-process COM queries.
+            let ranges = [
+                (EVENT_SYSTEM_MOVESIZEEND, EVENT_SYSTEM_MOVESIZEEND),
+                (EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZESTART),
+                (EVENT_OBJECT_CREATE, EVENT_OBJECT_HIDE),
+                (EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE),
+            ];
+            let mut hooks = Vec::with_capacity(ranges.len());
+            for (first, last) in ranges {
+                let hook = unsafe {
+                    SetWinEventHook(first, last, null_mut(), on_window_event, process, 0, 0)
+                };
+                if !hook.is_null() {
+                    hooks.push(hook);
+                }
+            }
+
+            if !hooks.is_empty() {
                 watches.insert(
                     process,
                     Watch {
                         owner: owner as Handle,
-                        hook,
+                        hooks,
                         app_id: app_id.clone(),
                         ref_count: 1,
                     },
@@ -351,11 +276,11 @@ unsafe extern "system" fn on_window_event(
     _: u32,
     _: u32,
 ) {
-    if matches!(event, EVENT_SYSTEM_CAPTURESTART | EVENT_OBJECT_INVOKED) && !hwnd.is_null() {
-        let pip_hwnd = LAST_PIP_HWND.load(Ordering::SeqCst);
-        if pip_hwnd != 0 && GetAncestor(hwnd, GA_ROOT) as isize == pip_hwnd {
-            inspect_pip_button_under_cursor();
-        }
+    if event == EVENT_SYSTEM_MOVESIZEEND
+        && !hwnd.is_null()
+        && hwnd as isize == LAST_PIP_HWND.load(Ordering::SeqCst)
+    {
+        record_pip_bounds(hwnd);
         return;
     }
 
@@ -384,25 +309,13 @@ unsafe extern "system" fn on_window_event(
         return;
     }
 
-    if event == EVENT_OBJECT_LOCATIONCHANGE
-        && object == 0
-        && child == 0
-        && !hwnd.is_null()
-        && hwnd as isize == LAST_PIP_HWND.load(Ordering::SeqCst)
-    {
-        record_pip_bounds(hwnd);
-        return;
-    }
-
     if event == EVENT_OBJECT_HIDE
         && object == 0
         && child == 0
         && !hwnd.is_null()
         && hwnd as isize == LAST_PIP_HWND.load(Ordering::SeqCst)
     {
-        if NATIVE_PIP_RETURN_MODE.load(Ordering::SeqCst) == RETURN_UNKNOWN {
-            inspect_pip_button_under_cursor();
-        }
+        record_pip_bounds(hwnd);
         if NATIVE_PIP_RETURN_MODE.load(Ordering::SeqCst) == RETURN_UNKNOWN
             && cursor_in_minimize_button()
         {
@@ -439,7 +352,11 @@ unsafe extern "system" fn on_window_event(
     let title = String::from_utf16_lossy(&title[..length as usize]).to_lowercase();
     if title.starts_with("devtools") {
         WATCHES.with(|watches| {
-            if let Some(watch) = watches.borrow().values().find(|watch| watch.hook == hook) {
+            if let Some(watch) = watches
+                .borrow()
+                .values()
+                .find(|watch| watch.hooks.contains(&hook))
+            {
                 let _ = set_app_id(hwnd, &watch.app_id);
             }
         });

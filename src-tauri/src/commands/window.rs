@@ -200,18 +200,18 @@ mod win32 {
     #[link(name = "user32")]
     extern "system" {
         pub fn ReleaseCapture() -> i32;
-        pub fn PostMessageW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> i32;
+        pub fn SendMessageW(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
     }
 
-    pub const WM_NCLBUTTONDOWN: u32 = 0x00A1;
-    pub const HTCAPTION: usize = 2;
+    pub const WM_SYSCOMMAND: u32 = 0x0112;
+    pub const SC_DRAGMOVE: usize = 0xF012;
 }
 
 pub static PIP_DRAGGING: AtomicBool = AtomicBool::new(false);
 static PIP_TARGET_X: AtomicI32 = AtomicI32::new(0);
 static PIP_TARGET_Y: AtomicI32 = AtomicI32::new(0);
 
-/// Marks the start of a mini player drag, initiating non-blocking native OS dragging.
+/// Marks the start of a mini player drag, initiating native OS dragging.
 #[tauri::command]
 pub fn pip_drag_start(app: tauri::AppHandle) -> AppResult<()> {
     if let Some(pip) = app.get_webview_window(crate::window::layout::PIP_WINDOW_LABEL) {
@@ -219,14 +219,37 @@ pub fn pip_drag_start(app: tauri::AppHandle) -> AppResult<()> {
         {
             if let Ok(hwnd) = pip.hwnd() {
                 let hwnd_raw = hwnd.0 as isize;
-                let _ = app.run_on_main_thread(move || unsafe {
-                    win32::ReleaseCapture();
-                    win32::PostMessageW(
-                        hwnd_raw as *mut std::ffi::c_void,
-                        win32::WM_NCLBUTTONDOWN,
-                        win32::HTCAPTION,
-                        0,
-                    );
+                let pip_handle = pip.clone();
+                let app_handle = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    PIP_DRAGGING.store(true, Ordering::SeqCst);
+                    unsafe {
+                        win32::ReleaseCapture();
+                        win32::SendMessageW(
+                            hwnd_raw as *mut std::ffi::c_void,
+                            win32::WM_SYSCOMMAND,
+                            win32::SC_DRAGMOVE,
+                            0,
+                        );
+                    }
+                    PIP_DRAGGING.store(false, Ordering::SeqCst);
+
+                    if let (Ok(pos), Ok(scale)) =
+                        (pip_handle.outer_position(), pip_handle.scale_factor())
+                    {
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            if let Ok(mut store) = state.settings.write() {
+                                let (width, height) =
+                                    (store.snapshot().pip.width, store.snapshot().pip.height);
+                                store.set_pip_geometry(
+                                    Some(pos.x as f64 / scale.max(0.0001)),
+                                    Some(pos.y as f64 / scale.max(0.0001)),
+                                    width,
+                                    height,
+                                );
+                            }
+                        }
+                    }
                 });
                 return Ok(());
             }

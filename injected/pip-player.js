@@ -333,7 +333,7 @@
           return;
         }
 
-        if (Math.hypot(event.clientX - press.x, event.clientY - press.y) >= 3) {
+        if (Math.hypot(event.clientX - press.x, event.clientY - press.y) >= 5) {
           press = null;
           dragged = true;
           send("drag");
